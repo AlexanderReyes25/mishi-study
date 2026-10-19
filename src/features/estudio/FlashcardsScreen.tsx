@@ -1,8 +1,9 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { Button } from '../../components/Button';
+import { MathText } from '../../components/MathText';
 import { Flashcard, getDueFlashcards, reviewFlashcard } from '../../services/study';
-import { colors, font, radius, spacing, touchMin } from '../../theme';
+import { colors, font, radius, spacing } from '../../theme';
 
 export function FlashcardsScreen({ materialId }: { materialId?: string }) {
   const [queue, setQueue] = useState<Flashcard[]>([]);
@@ -65,19 +66,20 @@ export function FlashcardsScreen({ materialId }: { materialId?: string }) {
 
   if (!queue.length) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.sm }}>
-        <Text style={{ fontSize: font.subtitle, fontWeight: '700', color: colors.text }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.md }}>
+        <Text style={{ fontSize: font.subtitle, fontWeight: '700', color: colors.text, textAlign: 'center' }}>
           {reviewed ? 'Terminaste el repaso de hoy' : 'No tienes tarjetas para repasar'}
         </Text>
         {error ? <Text style={{ color: colors.error, fontSize: font.body }}>{error}</Text> : null}
-        <Pressable onPress={reload} style={btn(colors.primary)}>
-          <Text style={btnText}>Volver a revisar</Text>
-        </Pressable>
+        <View style={{ alignSelf: 'stretch' }}>
+          <Button label="Volver a revisar" onPress={reload} />
+        </View>
       </View>
     );
   }
 
   const card = queue[0];
+  const content = flipped ? card.back : card.front;
   return (
     <View style={{ flex: 1, padding: spacing.lg, gap: spacing.lg }}>
       <Text style={{ color: colors.textMuted, fontSize: font.small }}>Quedan {queue.length}</Text>
@@ -99,37 +101,28 @@ export function FlashcardsScreen({ materialId }: { materialId?: string }) {
         <Text style={{ fontSize: font.small, color: colors.textMuted, marginBottom: spacing.sm }}>
           {flipped ? 'Respuesta' : 'Pregunta (toca para voltear)'}
         </Text>
-        <Text style={{ fontSize: font.title, textAlign: 'center', color: colors.text }}>
-          {flipped ? card.back : card.front}
-        </Text>
+        {/* Si la tarjeta lleva fórmulas ($...$), se dibujan con MathText */}
+        {content.includes('$') ? (
+          <View style={{ alignSelf: 'stretch' }}>
+            <MathText text={content} color={colors.text} />
+          </View>
+        ) : (
+          <Text style={{ fontSize: font.title, textAlign: 'center', color: colors.text }}>{content}</Text>
+        )}
       </Pressable>
 
       {error ? <Text style={{ color: colors.error, fontSize: font.body }}>{error}</Text> : null}
 
       {flipped ? (
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <Pressable disabled={saving} onPress={() => answer(false)} style={[btn(colors.error), { flex: 1 }]}>
-            <Ionicons name="close-circle" size={20} color={colors.white} />
-            <Text style={btnText}>No sabía</Text>
-          </Pressable>
-          <Pressable disabled={saving} onPress={() => answer(true)} style={[btn(colors.primary), { flex: 1 }]}>
-            <Ionicons name="checkmark-circle" size={20} color={colors.white} />
-            <Text style={btnText}>Sabía</Text>
-          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Button label="No sabía" variant="danger" disabled={saving} onPress={() => answer(false)} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button label="Sabía" variant="success" disabled={saving} onPress={() => answer(true)} />
+          </View>
         </View>
       ) : null}
     </View>
   );
 }
-
-const btn = (bg: string) => ({
-  minHeight: touchMin,
-  backgroundColor: bg,
-  borderRadius: radius.md,
-  flexDirection: 'row' as const,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
-  gap: spacing.sm,
-  paddingHorizontal: spacing.lg,
-});
-const btnText = { color: colors.white, fontSize: font.body, fontWeight: '700' as const };

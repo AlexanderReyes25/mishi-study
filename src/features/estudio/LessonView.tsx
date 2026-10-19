@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { MathView } from './MathView';
+import { MathText, RichText } from '../../components/MathText';
 import { LessonBlock } from './lessonTypes';
 import { colors, font, radius, spacing } from '../../theme';
 
@@ -9,13 +9,9 @@ export function LessonView({ blocks }: { blocks: LessonBlock[] }) {
       {blocks.map((b, i) => {
         switch (b.type) {
           case 'text':
-            return (
-              <Text key={i} style={{ fontSize: font.body, lineHeight: 24, color: colors.text }}>
-                {b.content}
-              </Text>
-            );
+            return <RichText key={i} text={b.content} color={colors.text} />;
           case 'formula':
-            return <MathView key={i} latex={b.latex} />;
+            return <MathText key={i} text={`$$${b.latex}$$`} color={colors.text} />;
           case 'example':
             return (
               <View
@@ -31,12 +27,17 @@ export function LessonView({ blocks }: { blocks: LessonBlock[] }) {
                 <Text style={{ fontSize: font.subtitle, fontWeight: '700', color: colors.text }}>{b.title}</Text>
                 {b.steps.map((s, j) => (
                   <View key={j} style={{ gap: spacing.xs }}>
-                    <Text style={{ fontSize: font.body, color: colors.text }}>
-                      {j + 1}. {s.text}
-                    </Text>
+                    {/* Si la IA ya numeró el paso ("1. ..."), se quita para no duplicar el número */}
+                    <RichText text={`${j + 1}. ${s.text.replace(/^\s*\d+[.)]\s+/, '')}`} color={colors.text} />
                     {s.latex ? (
-                      <View style={{ backgroundColor: colors.successSoft, borderRadius: radius.sm }}>
-                        <MathView latex={s.latex} height={70} />
+                      <View
+                        style={{
+                          backgroundColor: colors.successSoft,
+                          borderRadius: radius.sm,
+                          paddingHorizontal: spacing.sm,
+                        }}
+                      >
+                        <MathText text={`$$${s.latex}$$`} color={colors.text} />
                       </View>
                     ) : null}
                   </View>
@@ -49,9 +50,7 @@ export function LessonView({ blocks }: { blocks: LessonBlock[] }) {
                 key={i}
                 style={{ backgroundColor: colors.successSoft, borderRadius: radius.md, padding: spacing.lg }}
               >
-                <Text style={{ fontSize: font.body, fontWeight: '600', color: colors.text }}>
-                  Consejo: {b.content}
-                </Text>
+                <RichText text={`Consejo: ${b.content}`} color={colors.text} />
               </View>
             );
           default:
