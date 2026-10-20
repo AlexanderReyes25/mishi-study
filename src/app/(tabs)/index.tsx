@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { MishiShadow } from "../../components/Mishi";
+import { PruebaFoto } from "../../features/inicio/PruebaFoto";
 import { PruebaLeccion } from "../../features/inicio/PruebaLeccion";
 import { useSession } from "../../services/session";
 import { supabase } from "../../services/supabase";
@@ -166,8 +167,14 @@ export default function Inicio() {
               onPress={() => setMostrarPrueba(!mostrarPrueba)}
             />
 
-            <View style={!mostrarPrueba && styles.hidden}>
-              <PruebaLeccion key={session.user.id} />
+            <View 
+            style={[
+              { gap: spacing.lg },
+              !mostrarPrueba && styles.hidden,
+            ]}
+          >
+            <PruebaLeccion key={session.user.id} />
+            <PruebaFoto key={`foto-${session.user.id}`} />
             </View>
           </>
         ) : null}

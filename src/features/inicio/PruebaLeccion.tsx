@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Keyboard, Text, TextInput } from "react-native";
 import { parseLesson } from "../../../supabase/functions/_shared/lesson";
 import { Button } from "../../components/Button";
@@ -41,9 +41,15 @@ async function leerLeccion(material: Material, tema: string) {
   };
 }
 
-export function PruebaLeccion() {
+type Props = {
+  materialId?: string;
+  onBusyChange?: (ocupada: boolean) => void;
+};
+
+export function PruebaLeccion({ materialId, onBusyChange }: Props) {
   const { userId } = useSession();
   const ocupado = useRef(false);
+  const montado = useRef(false);
   const materialActual = useRef<Material | null>(null);
 
   const [texto, setTexto] = useState("");
@@ -52,6 +58,15 @@ export function PruebaLeccion() {
   const [estado, setEstado] = useState("");
   const [mostrarCarga, setMostrarCarga] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    montado.current = true;
+
+    return () => {
+      montado.current = false;
+      onBusyChange?.(false);
+    };
+  }, [onBusyChange]);
 
   const cargando = estado !== "";
   const resultado = temas.find(
@@ -69,6 +84,7 @@ export function PruebaLeccion() {
 
   function iniciar(mensaje: string) {
     ocupado.current = true;
+    onBusyChange?.(true);
     Keyboard.dismiss();
     setEstado(mensaje);
     setError("");
@@ -76,26 +92,36 @@ export function PruebaLeccion() {
 
   function terminar() {
     ocupado.current = false;
+    if (!montado.current) return;
+
     setEstado("");
     setMostrarCarga(false);
+    onBusyChange?.(false);
   }
 
   async function analizar() {
-    if (!userId || ocupado.current || temas.length) return;
+    if (!montado.current || !userId || ocupado.current || temas.length) return;
 
     const contenido = texto.trim();
 
-    if (!contenido || contenido.length > MAX_TEXTO) {
+    if (!materialId && (!contenido || contenido.length > MAX_TEXTO)) {
       setError("Escribe tus apuntes: máximo 10 000 caracteres.");
       return;
     }
 
-    iniciar("Detectando los temas de tus apuntes…");
+    iniciar(
+      materialId
+        ? "Detectando los temas de la fotografía…"
+        : "Detectando los temas de tus apuntes…"
+    );
 
     try {
       let material = materialActual.current;
 
-      if (
+      if (materialId) {
+        material = { userId, texto: "", id: materialId };
+        materialActual.current = material;
+      } else if (
         !material ||
         material.userId !== userId ||
         material.texto !== contenido
@@ -114,6 +140,8 @@ export function PruebaLeccion() {
           .select("id")
           .single();
 
+        if (!montado.current) return;
+
         if (crearError || !data) {
           throw new Error(
             crearError?.message ?? "No se pudo guardar el material."
@@ -125,6 +153,7 @@ export function PruebaLeccion() {
       }
 
       const analisis = await runAi("topics", material.id);
+      if (!montado.current) return;
 
       if (
         !Array.isArray(analisis?.topics) ||
@@ -146,6 +175,8 @@ export function PruebaLeccion() {
         .eq("id", material.id)
         .eq("user_id", userId)
         .single();
+
+      if (!montado.current) return;
 
       if (
         temasError ||
@@ -174,18 +205,20 @@ export function PruebaLeccion() {
         }))
       );
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "No se pudieron analizar los apuntes."
-      );
+      if (montado.current) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : "No se pudieron analizar los apuntes."
+        );
+      }
     } finally {
       terminar();
     }
   }
 
   async function abrirTema(nombre: string) {
-    if (!userId || ocupado.current) return;
+    if (!montado.current || !userId || ocupado.current) return;
 
     const material = materialActual.current;
     const tema = temas.find((item) => item.nombre === nombre);
@@ -193,7 +226,9 @@ export function PruebaLeccion() {
     if (
       !material ||
       material.userId !== userId ||
-      material.texto !== texto.trim() ||
+      (materialId
+        ? material.id !== materialId
+        : material.texto !== texto.trim()) ||
       !tema
     ) {
       return;
@@ -210,14 +245,17 @@ export function PruebaLeccion() {
     try {
       // Recupera una lección ya guardada si antes se perdió la conexión.
       let leccion: Leccion | null = await leerLeccion(material, nombre);
+      if (!montado.current) return;
 
       if (!leccion) {
         const respuesta = await runAi("lesson", material.id, {
           topic: nombre,
         });
+        if (!montado.current) return;
 
         const validada = parseLesson(respuesta);
         const guardada = await leerLeccion(material, nombre);
+        if (!montado.current) return;
 
         if (
           !guardada ||
@@ -240,11 +278,13 @@ export function PruebaLeccion() {
         )
       );
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "No se pudo preparar esta lección."
-      );
+      if (montado.current) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : "No se pudo preparar esta lección."
+        );
+      }
     } finally {
       terminar();
     }
@@ -264,46 +304,54 @@ export function PruebaLeccion() {
       ) : null}
 
       <Text style={{ color: colors.text, fontSize: font.subtitle }}>
-        Prueba de IA con tus apuntes
+        {materialId ? "IA con tu fotografía" : "Prueba de IA con tus apuntes"}
       </Text>
 
       <Text style={{ color: colors.textMuted }}>
-        Pega tus apuntes. Detectaremos los temas para crear una lección
-        por cada uno.
+        {materialId
+          ? "Detectaremos los temas de la fotografía que acabas de guardar. Después podrás elegir cuál estudiar."
+          : "Pega tus apuntes. Detectaremos los temas para crear una lección por cada uno."}
       </Text>
 
-      <TextInput
-        value={texto}
-        onChangeText={cambiarTexto}
-        editable={!cargando}
-        multiline
-        maxLength={MAX_TEXTO}
-        textAlignVertical="top"
-        placeholder="Pega aquí tus apuntes…"
-        placeholderTextColor={colors.textMuted}
-        accessibilityLabel="Apuntes para analizar"
-        style={{
-          minHeight: spacing.xxl * 5,
-          padding: spacing.md,
-          borderWidth: 1,
-          borderColor: colors.border,
-          borderRadius: radius.md,
-          color: colors.text,
-          backgroundColor: colors.surface,
-          fontSize: font.body,
-        }}
-      />
+      {!materialId ? (
+        <>
+          <TextInput
+            value={texto}
+            onChangeText={cambiarTexto}
+            editable={!cargando}
+            multiline
+            maxLength={MAX_TEXTO}
+            textAlignVertical="top"
+            placeholder="Pega aquí tus apuntes…"
+            placeholderTextColor={colors.textMuted}
+            accessibilityLabel="Apuntes para analizar"
+            style={{
+              minHeight: spacing.xxl * 5,
+              padding: spacing.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              color: colors.text,
+              backgroundColor: colors.surface,
+              fontSize: font.body,
+            }}
+          />
 
-      <Text style={{ color: colors.textMuted, fontSize: font.small }}>
-        {texto.length} / {MAX_TEXTO} caracteres
-      </Text>
+          <Text style={{ color: colors.textMuted, fontSize: font.small }}>
+            {texto.length} / {MAX_TEXTO} caracteres
+          </Text>
+        </>
+      ) : null}
 
       <Button
         label={temas.length ? "Temas detectados" : "Detectar temas"}
         onPress={analizar}
         loading={cargando && !seleccionado}
         disabled={
-          !userId || cargando || !texto.trim() || temas.length > 0
+          !userId ||
+          cargando ||
+          (!materialId && !texto.trim()) ||
+          temas.length > 0
         }
       />
 
