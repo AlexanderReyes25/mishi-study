@@ -1,3 +1,4 @@
+import { PruebaProcedimiento } from "../../features/inicio/PruebaProcedimiento";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState, type ComponentProps } from "react";
@@ -175,6 +176,7 @@ export default function Inicio() {
           >
             <PruebaLeccion key={session.user.id} />
             <PruebaFoto key={`foto-${session.user.id}`} />
+            <PruebaProcedimiento key={`procedimiento-${session.user.id}`} />
             </View>
           </>
         ) : null}
