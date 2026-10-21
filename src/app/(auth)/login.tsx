@@ -1,10 +1,10 @@
-// LOGIN BÁSICO que ya funciona, para que todos puedan entrar desde el primer día.
-// Parte 1 (Acceso y materiales) lo mejora: diseño final, validaciones y registro.
+// LOGIN MEJORADO (Parte 1: Acceso y materiales)
+// Validaciones de formato, longitud y mensajes claros.
 import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
-import { supabase } from '../../services/supabase';
-import { Screen } from '../../components/Screen';
 import { Button } from '../../components/Button';
+import { Screen } from '../../components/Screen';
+import { supabase } from '../../services/supabase';
 import { colors, font, radius, spacing, touchMin } from '../../theme';
 
 export default function Login() {
@@ -13,22 +13,45 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
+  const isValidEmail = (text: string) => /\S+@\S+\.\S+/.test(text.trim());
+
   async function submit(mode: 'signin' | 'signup') {
-    if (!email.trim() || password.length < 6) {
-      setMessage('Escribe un correo y una contraseña de al menos 6 caracteres.');
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail || !password.trim()) {
+      setMessage('Por favor completa tanto el correo como la contraseña.');
       return;
     }
+
+    if (!isValidEmail(cleanEmail)) {
+      setMessage('Ingresa un correo electrónico con formato válido.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+
     setBusy(true);
     setMessage('');
-    const { data, error } =
-      mode === 'signin'
-        ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
-        : await supabase.auth.signUp({ email: email.trim(), password });
-    setBusy(false);
-    if (error) setMessage(error.message);
-    else if (mode === 'signup' && !data.session)
-      setMessage("Cuenta creada, pero sin sesión: desactiva 'Confirm email' en Supabase.");
-    // Si hay sesión, la raíz de la app cambia sola a las pestañas.
+
+    try {
+      const { data, error } =
+        mode === 'signin'
+          ? await supabase.auth.signInWithPassword({ email: cleanEmail, password })
+          : await supabase.auth.signUp({ email: cleanEmail, password });
+
+      if (error) {
+        setMessage(error.message);
+      } else if (mode === 'signup' && !data.session) {
+        setMessage("Cuenta creada, pero sin sesión: desactiva 'Confirm email' en Supabase.");
+      }
+    } catch (err: any) {
+      setMessage(err.message || 'Error al conectar con el servicio.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -41,7 +64,10 @@ export default function Login() {
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(text) => {
+            setEmail(text);
+            if (message) setMessage('');
+          }}
         />
         <TextInput
           style={styles.input}
@@ -49,7 +75,10 @@ export default function Login() {
           placeholderTextColor={colors.textMuted}
           secureTextEntry
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(text) => {
+            setPassword(text);
+            if (message) setMessage('');
+          }}
         />
         {message ? <Text style={styles.message}>{message}</Text> : null}
         <Button label="Iniciar sesión" onPress={() => submit('signin')} loading={busy} />

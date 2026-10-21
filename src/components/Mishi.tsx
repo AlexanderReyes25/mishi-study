@@ -59,12 +59,10 @@ export function MishiSitting({ width = 162 }: { width?: number }) {
 
 type ShadowProps = { width?: number; left?: number; bottom?: number; rotate?: string };
 
-export function MishiShadow({ width, left = -60, bottom, rotate = '45deg' }: ShadowProps) {
+export function MishiShadow({ width, left = 0, bottom = 0, rotate = '0deg' }: ShadowProps) {
   const screenWidth = useWindowDimensions().width;
-  // A 45 grados, la punta de la oreja derecha queda en left + 1,22 x ancho.
-  // Si no se indica un ancho, se calcula para que la punta llegue al centro de la pantalla.
-  const w = width ?? Math.round((screenWidth / 2 - left) / 1.22);
-  const b = bottom ?? -Math.round(w * 0.69);
+  const w = width ?? Math.round(screenWidth * 0.65);
+
   return (
     <Image
       source={shadow}
@@ -73,7 +71,7 @@ export function MishiShadow({ width, left = -60, bottom, rotate = '45deg' }: Sha
       style={{
         position: 'absolute',
         left,
-        bottom: b,
+        bottom,
         width: w,
         height: (w * 733) / 410,
         transform: [{ rotate }],
