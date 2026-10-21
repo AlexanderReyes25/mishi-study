@@ -8,7 +8,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
@@ -19,6 +19,7 @@ import {
   getMaterialsList,
   processMaterialTopics,
   updateRawText,
+  uploadImage,
   uploadPdf,
   uploadRawText,
 } from '../../features/materiales/materials.service';
@@ -122,12 +123,20 @@ export default function MaterialesScreen() {
     }
   };
 
-  const handleUploadImage = (_source: 'camera' | 'library') => {
-    Alert.alert(
-      'Módulo en mantenimiento',
-      'El análisis visual de imágenes mediante IA está en optimización por parte del equipo de backend. Por favor utiliza "Subir PDF" o "Pegar texto".',
-      [{ text: 'Entendido' }]
-    );
+  const handleUploadImage = async (source: 'camera' | 'library') => {
+    if (!userId) return;
+    try {
+      setUploading(true);
+      const id = await uploadImage(userId, source);
+      if (id) {
+        Alert.alert('Éxito', 'Imagen subida correctamente.');
+        await handlePostUpload(id);
+      }
+    } catch (err: any) {
+      Alert.alert('Error al subir imagen', err.message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const wordCount = useMemo(() => {
