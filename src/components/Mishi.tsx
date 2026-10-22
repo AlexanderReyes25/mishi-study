@@ -3,8 +3,8 @@ import {
   AccessibilityInfo,
   Animated,
   Image,
+  Platform,
   View,
-  useAnimatedValue,
   useWindowDimensions,
 } from 'react-native';
 
@@ -18,7 +18,7 @@ function useEarFlick(
   peak: number,
   enabled: boolean
 ) {
-  const angle = useAnimatedValue(0);
+  const [angle] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     angle.setValue(0);
@@ -41,7 +41,7 @@ function useEarFlick(
         Animated.timing(angle, {
           toValue,
           duration,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
           isInteraction: false,
         });
 
