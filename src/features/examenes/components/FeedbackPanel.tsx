@@ -14,9 +14,10 @@ type Props = {
   busy: boolean;
   error: string | null;
   onContinue: () => void;
+  bottomInset: number; // zona segura inferior del teléfono
 };
 
-export function FeedbackPanel({ answer, isLast, busy, error, onContinue }: Props) {
+export function FeedbackPanel({ answer, isLast, busy, error, onContinue, bottomInset }: Props) {
   const { height } = useWindowDimensions();
   const ok = answer.isCorrect;
   const tone = ok
@@ -24,7 +25,12 @@ export function FeedbackPanel({ answer, isLast, busy, error, onContinue }: Props
     : { strip: colors.accent, stripText: colors.white, soft: colors.errorSoft, border: colors.accent };
 
   return (
-    <View style={[styles.panel, { backgroundColor: tone.soft, borderColor: tone.border }]}>
+    <View
+      style={[
+        styles.panel,
+        { backgroundColor: tone.soft, borderColor: tone.border, paddingBottom: spacing.lg + bottomInset },
+      ]}
+    >
       <View
         style={[styles.strip, { backgroundColor: tone.strip }]}
         accessible
