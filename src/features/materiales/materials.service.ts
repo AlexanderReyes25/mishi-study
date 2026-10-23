@@ -1,11 +1,10 @@
-import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
 import { uuid } from 'expo-modules-core';
 import * as ImagePicker from 'expo-image-picker';
 import { runAi } from '../../services/ai';
 import { prepararImagen, type ImagenPreparada, type ModoImagen } from '../../services/PrepararImagen';
 import { crearSubidaImagen, subirImagen, type SubidaImagen } from '../../services/subirImagen';
 import { supabase } from '../../services/supabase';
+import { seleccionarPdf } from '../../services/seleccionarPdf';
 
 export interface MaterialItem {
   id: string;
@@ -18,7 +17,6 @@ export interface MaterialItem {
   created_at: string;
 }
 
-const MAX_BYTES = 10 * 1024 * 1024;
 const pendingImages = new Map<string, { image: ImagenPreparada; upload: SubidaImagen }>();
 
 async function currentUser(expectedId?: string) {
@@ -48,33 +46,13 @@ export async function retryPendingImage(userId: string): Promise<string> {
  * 1. Subir documento PDF
  */
 export async function uploadPdf(userId: string, subjectId?: string): Promise<string | null> {
-  const res = await DocumentPicker.getDocumentAsync({
-    type: 'application/pdf',
-    copyToCacheDirectory: true,
-  });
-
-  if (res.canceled) return null;
-
-  const file = res.assets[0];
+  const file = await seleccionarPdf();
   if (!file) return null;
-  if ((file.size ?? 0) > MAX_BYTES) {
-    throw new Error('El archivo supera los 10 MB');
-  }
-
-  const local = new File(file.uri);
-  if (!local.exists || local.size <= 0 || local.size > MAX_BYTES) {
-    throw new Error('El PDF está vacío, no está disponible o supera los 10 MB.');
-  }
-  const bytes = await local.arrayBuffer();
-  if (!bytes.byteLength || bytes.byteLength > MAX_BYTES ||
-      String.fromCharCode(...new Uint8Array(bytes).slice(0, 5)) !== '%PDF-') {
-    throw new Error('Selecciona un PDF válido de hasta 10 MB.');
-  }
   await currentUser(userId);
   const id = uuid.v4();
   const path = `${userId}/${id}.pdf`;
 
-  const up = await supabase.storage.from('materials').upload(path, bytes, {
+  const up = await supabase.storage.from('materials').upload(path, file.bytes, {
     contentType: 'application/pdf',
   });
 
