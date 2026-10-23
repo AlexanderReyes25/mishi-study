@@ -51,7 +51,7 @@ export function parseTranscription(value: unknown): Transcription {
   return { text: content, legible: data.legible, uncertain };
 }
 
-const normalized = (value: string) => value.normalize('NFC').replace(/\s+con/g, ' ').trim();
+const normalized = (value: string) => value.normalize('NFC').replace(/\s+/g, ' ').trim();
 
 export function parseReview(value: unknown, submittedProcedure: string): ReviewResult {
   const data = object(value);

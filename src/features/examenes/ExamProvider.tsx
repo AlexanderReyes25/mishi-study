@@ -1,6 +1,6 @@
 // Estado del examen en curso, compartido por las pantallas de src/app/examen/.
 // Uso:  const { run, startExam, checkAnswer, goNext, finishExam } = useExam();
-import { createContext, useContext, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ExamKind } from '../../services/ai';
 import { useSession } from '../../services/session';
 import {
@@ -13,6 +13,7 @@ import {
   type SavedAttempt,
 } from '../../services/exams';
 import { forgetLessons } from './lessonCache';
+import { advanceQuestion, completeAnswers } from './examState';
 
 export interface ExamRun {
   materialId: string;
@@ -26,7 +27,7 @@ type ExamContextValue = {
   run: ExamRun | null;
   startExam: (materialId: string, kind: ExamKind, options: { count: number; topics?: string[] }) => Promise<void>;
   checkAnswer: (question: PlayableQuestion, choice: string) => Promise<GradedAnswer>;
-  goNext: () => void;
+  goNext: (questionId: string) => void;
   finishExam: () => Promise<SavedAttempt>;
 };
 
@@ -39,12 +40,19 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   const starting = useRef<Promise<void> | null>(null);
   const checking = useRef<Promise<GradedAnswer> | null>(null);
   const finishing = useRef<Promise<SavedAttempt> | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   function startExam(materialId: string, kind: ExamKind, options: { count: number; topics?: string[] }) {
     if (starting.current) return starting.current;
+    if (!userId) return Promise.reject(new Error('Vuelve a iniciar sesión.'));
+    if (checking.current || finishing.current) return Promise.reject(new Error('Espera a que termine la operación actual.'));
     const task = createExam(materialId, kind, options)
       .then((session) => {
-        setRun({ materialId, session, index: 0, answers: {}, saved: null });
+        if (mounted.current) setRun({ materialId, session, index: 0, answers: {}, saved: null });
       })
       .finally(() => {
         starting.current = null;
@@ -54,12 +62,16 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   }
 
   function checkAnswer(question: PlayableQuestion, choice: string) {
+    if (!run || starting.current || run.session.questions[run.index]?.id !== question.id || !question.options.includes(choice)) {
+      return Promise.reject(new Error('Elige una opción de la pregunta actual.'));
+    }
+    const examId = run.session.examId;
     const done = run?.answers[question.id];
     if (done) return Promise.resolve(done); // ya se corrigió: no se cambia la respuesta
     if (checking.current) return checking.current;
     const task = gradeAnswer(question.id, choice)
       .then((graded) => {
-        setRun((r) => (r ? { ...r, answers: { ...r.answers, [question.id]: graded } } : r));
+        if (mounted.current) setRun((r) => (r?.session.examId === examId ? { ...r, answers: { ...r.answers, [question.id]: graded } } : r));
         return graded;
       })
       .finally(() => {
@@ -69,8 +81,8 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     return task;
   }
 
-  function goNext() {
-    setRun((r) => (r && r.index < r.session.questions.length - 1 ? { ...r, index: r.index + 1 } : r));
+  function goNext(questionId: string) {
+    setRun(r => advanceQuestion(r, questionId));
   }
 
   function finishExam() {
@@ -79,14 +91,13 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     if (finishing.current) return finishing.current;
     if (!userId) return Promise.reject(new Error('Tu sesión expiró. Vuelve a iniciar sesión.'));
 
-    const { materialId, session, answers } = run;
-    const ordered = session.questions
-      .map((q) => answers[q.id])
-      .filter((a): a is GradedAnswer => a !== undefined);
+    const { materialId, session } = run;
+    let ordered: GradedAnswer[];
+    try { ordered = completeAnswers(run); } catch (error) { return Promise.reject(error); }
     const task = saveAttempt(session.examId, userId, ordered)
       .then((saved) => {
-        forgetLessons(materialId, [...new Set(session.questions.map((q) => q.topic))]);
-        setRun((r) => (r && r.session.examId === session.examId ? { ...r, saved } : r));
+        forgetLessons(userId, materialId, [...new Set(session.questions.map((q) => q.topic))]);
+        if (mounted.current) setRun((r) => (r && r.session.examId === session.examId ? { ...r, saved } : r));
         return saved;
       })
       .finally(() => {

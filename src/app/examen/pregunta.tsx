@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen } from '../../components/Screen';
+import { Page as Screen, Tag } from '../../components/MishiUI';
+import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { ProgressBar } from '../../components/ProgressBar';
 import { RichText } from '../../components/MathText';
@@ -49,7 +50,7 @@ function QuestionView({ run, question }: { run: ExamRun; question: PlayableQuest
 
   function next() {
     if (!isLast) {
-      goNext();
+      goNext(question.id);
       return;
     }
     if (finishing) return; // doble toque
@@ -82,8 +83,8 @@ function QuestionView({ run, question }: { run: ExamRun; question: PlayableQuest
     <View style={styles.page}>
       <Screen title={`Pregunta ${number} de ${total}`} subtitle={run.session.title}>
         <ProgressBar value={progress} />
-        <Text style={styles.topic}>Tema: {question.topic}</Text>
-        <RichText text={question.question} color={colors.text} />
+        <Tag label={question.topic} tone="coral"/>
+        <Card><RichText text={question.question} color={colors.text} /></Card>
         <View style={styles.options} accessibilityRole="radiogroup">
           {question.options.map((option, i) => {
             const look = optionLook(option);
@@ -99,7 +100,7 @@ function QuestionView({ run, question }: { run: ExamRun; question: PlayableQuest
             );
           })}
         </View>
-        {!answer ? <Button label="Salir del examen" variant="secondary" onPress={exit} /> : null}
+        {!answer ? <Button label="Salir del examen" variant="secondary" onPress={exit} disabled={checking} /> : null}
       </Screen>
 
       {answer ? (
@@ -126,10 +127,11 @@ function QuestionView({ run, question }: { run: ExamRun; question: PlayableQuest
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.background },
+  page: { flex: 1, backgroundColor: colors.canvas },
   topic: { fontSize: font.small, fontWeight: '800', color: colors.textMuted },
   options: { gap: spacing.md },
   bottom: {
+    width: '100%', maxWidth: 760, alignSelf: 'center',
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
     gap: spacing.sm,

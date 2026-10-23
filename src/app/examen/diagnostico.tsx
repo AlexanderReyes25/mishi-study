@@ -1,6 +1,6 @@
 // Introducción del examen diagnóstico de un material (8 preguntas).
 import { useLocalSearchParams } from 'expo-router';
-import { Screen } from '../../components/Screen';
+import { Page as Screen } from '../../components/MishiUI';
 import { Button } from '../../components/Button';
 import { PASS_MARK } from '../../services/progress';
 import { ExamIntro } from '../../features/examenes/components/ExamIntro';

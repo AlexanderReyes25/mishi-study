@@ -5,14 +5,19 @@ import { fetchLesson, type LessonResult } from '../../services/exams';
 
 const cache = new Map<string, Promise<LessonResult>>();
 
-const keyOf = (materialId: string, topic: string) => `${materialId}::${topic}`;
+export function clearLessons(): void { cache.clear(); }
 
-export function getLesson(materialId: string, topic: string): Promise<LessonResult> {
-  const key = keyOf(materialId, topic);
+const keyOf = (userId: string, materialId: string, topic: string) => JSON.stringify([userId, materialId, topic]);
+
+export function getLesson(userId: string, materialId: string, topic: string): Promise<LessonResult> {
+  if (!userId) return Promise.reject(new Error('Inicia sesión para abrir el refuerzo.'));
+  const key = keyOf(userId, materialId, topic);
   const cached = cache.get(key);
   if (cached) return cached;
 
   const request = fetchLesson(materialId, topic);
+  // Mantener un límite de memoria sin compartir contenido entre cuentas.
+  if (cache.size >= 32) cache.delete(cache.keys().next().value!);
   cache.set(key, request);
   // Si falla, se olvida para que "Reintentar" haga una solicitud nueva
   request.catch(() => {
@@ -22,6 +27,6 @@ export function getLesson(materialId: string, topic: string): Promise<LessonResu
 }
 
 // Al terminar un examen nuevo de esos temas, la próxima lección debe ser otra
-export function forgetLessons(materialId: string, topics: string[]): void {
-  for (const topic of topics) cache.delete(keyOf(materialId, topic));
+export function forgetLessons(userId: string, materialId: string, topics: string[]): void {
+  for (const topic of topics) cache.delete(keyOf(userId, materialId, topic));
 }

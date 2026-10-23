@@ -3,13 +3,15 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Screen } from '../../components/Screen';
+import { Page as Screen } from '../../components/MishiUI';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { MathText } from '../../components/MathText';
+import { LessonView as LessonBlocks } from '../../features/estudio/LessonView';
 import { ROUNDS_BEFORE_SIMPLER_METHOD } from '../../services/progress';
 import { getTopicStatuses, type LessonResult } from '../../services/exams';
 import { getLesson } from '../../features/examenes/lessonCache';
+import { useSession } from '../../services/session';
 import { ErrorCard, LoadingCard } from '../../features/examenes/components/StatusCards';
 import { goBackOr } from '../../features/examenes/navigation';
 import { firstParam } from '../../features/examenes/params';
@@ -37,6 +39,7 @@ export default function Refuerzo() {
 }
 
 function LessonView({ materialId, topic }: { materialId: string; topic: string }) {
+  const { userId } = useSession();
   const [lesson, setLesson] = useState<LessonState>({ kind: 'loading' });
   const [reload, setReload] = useState(0);
   const [failedRounds, setFailedRounds] = useState(0);
@@ -45,7 +48,7 @@ function LessonView({ materialId, topic }: { materialId: string; topic: string }
   // y volver a esta pantalla no hacen una segunda llamada a la IA.
   useEffect(() => {
     let alive = true;
-    getLesson(materialId, topic)
+    getLesson(userId ?? '', materialId, topic)
       .then((result) => {
         if (alive) setLesson({ kind: 'ready', lesson: result });
       })
@@ -55,7 +58,7 @@ function LessonView({ materialId, topic }: { materialId: string; topic: string }
     return () => {
       alive = false;
     };
-  }, [materialId, topic, reload]);
+  }, [userId, materialId, topic, reload]);
 
   // Cuántos refuerzos lleva el tema (no bloquea la lección si falla)
   useEffect(() => {
@@ -105,7 +108,7 @@ function LessonView({ materialId, topic }: { materialId: string; topic: string }
             {lesson.lesson.title}
           </Text>
           <Text style={styles.round}>Refuerzo n.º {lesson.lesson.round}</Text>
-          <MathText text={lesson.lesson.lesson} color={colors.text} />
+          <>{lesson.lesson.blocks?.length ? <LessonBlocks blocks={lesson.lesson.blocks}/> : <MathText text={lesson.lesson.lesson} color={colors.text} />}</>
         </Card>
       ) : null}
 

@@ -48,3 +48,6 @@ example
 .env.*
 !.env.example
 /supabase/.temp/
+
+# Reportes locales de verificación
+/tests/**/*report.json

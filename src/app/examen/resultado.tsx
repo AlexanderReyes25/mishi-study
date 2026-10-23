@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Screen } from '../../components/Screen';
+import { Page as Screen, Tag, SectionHeading } from '../../components/MishiUI';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { ProgressBar } from '../../components/ProgressBar';
@@ -32,7 +32,8 @@ export default function Resultado() {
   return (
     <Screen title="Resultados">
       <LoadingCard title="Guardando tu examen…" />
-      <Button label="Volver a mis materiales" variant="secondary" onPress={() => router.dismissTo('/examen')} />
+      <Button label="Ver mi progreso" icon="stats-chart-outline" onPress={() => router.dismissTo('/(tabs)/progreso')} />
+      <Button label="Otros exámenes" variant="secondary" onPress={() => router.dismissTo('/examen')} />
     </Screen>
   );
 }
@@ -90,8 +91,9 @@ function ResultView({ run }: { run: SavedRun }) {
   const passed = pct >= PASS_MARK;
 
   return (
-    <Screen title="Resultados" subtitle={session.title}>
-      <Card>
+    <Screen eyebrow="MISHI / TU RESULTADO" title="Un paso más adelante" subtitle={session.title}>
+      <Card style={{backgroundColor:passed?colors.successSoft:colors.coralSoft}}>
+        <Tag label="Intento guardado" tone="success"/>
         <Text style={styles.score} accessibilityRole="header">
           {saved.score} de {saved.total} correctas · {pct}%
         </Text>
@@ -107,6 +109,7 @@ function ResultView({ run }: { run: SavedRun }) {
       {status.kind === 'loading' ? <LoadingCard title="Actualizando tu progreso por tema…" /> : null}
       {status.kind === 'error' ? <ErrorCard message={status.message} onRetry={retry} /> : null}
 
+      <SectionHeading title="Tu resultado por tema"/>
       {rows.map((row) => (
         <TopicResultCard
           key={row.topic}
@@ -120,7 +123,8 @@ function ResultView({ run }: { run: SavedRun }) {
         />
       ))}
 
-      <Button label="Volver a mis materiales" variant="secondary" onPress={() => router.dismissTo('/examen')} />
+      <Button label="Ver mi progreso" icon="stats-chart-outline" onPress={() => router.dismissTo('/(tabs)/progreso')} />
+      <Button label="Otros exámenes" variant="secondary" onPress={() => router.dismissTo('/examen')} />
     </Screen>
   );
 }

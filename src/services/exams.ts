@@ -2,7 +2,7 @@
 // Crea exámenes con la IA, corrige cada pregunta contra exam_questions,
 // guarda el intento completo y lee el estado de cada tema.
 import { supabase } from "./supabase";
-import { runAi, type ExamKind } from "./ai";
+import { runAi, type AiResult, type ExamKind } from "./ai";
 import { recordAttempt, type TopicStatus } from "./progress";
 
 export interface ExamMaterial {
@@ -43,11 +43,7 @@ export interface SavedAttempt {
   total: number;
 }
 
-export interface LessonResult {
-  title: string;
-  lesson: string;
-  round: number;
-}
+export type LessonResult = AiResult["lesson"];
 
 export const GENERAL_TOPIC = "General";
 const TRUE_FALSE_OPTIONS = ["Verdadero", "Falso"];
@@ -144,7 +140,7 @@ export async function createExam(
 }
 
 // ---------------------------------------------------------------------
-// Corregir una pregunta (la respuesta correcta solo vive en la base de datos)
+// Corrección formativa: este cliente consulta la solución y compara la respuesta.
 // ---------------------------------------------------------------------
 export async function gradeAnswer(questionId: string, userAnswer: string): Promise<GradedAnswer> {
   const { data, error } = await supabase
@@ -166,7 +162,7 @@ export async function gradeAnswer(questionId: string, userAnswer: string): Promi
 
 // ---------------------------------------------------------------------
 // Guardar el intento al terminar. Cada paso revisa primero la base de datos,
-// así un reintento nunca repite lo que ya se hizo ni duplica filas:
+// para reutilizar escrituras confirmadas al reintentar desde este cliente:
 //  1) exam_attempts: un solo intento por examen (cada examen se responde una vez).
 //  2) attempt_answers: un único insert; si ya hay respuestas, no se vuelve a insertar.
 //  3) recordAttempt: solo si el intento aún no tiene finished_at.
@@ -234,6 +230,9 @@ async function ensureRecorded(attemptId: string): Promise<SavedAttempt> {
       throw dbError(e instanceof Error ? e.message : "", "No se pudo calcular tu resultado.");
     }
     row = await read();
+  }
+  if (!row.finished_at || !Number.isFinite(row.score) || !Number.isFinite(row.total) || row.total < 1) {
+    throw new Error("El resultado todavía no se ha confirmado. Reintenta guardar.");
   }
   return { attemptId, score: row.score, total: row.total };
 }

@@ -48,7 +48,8 @@ export async function reviewFlashcard(card: Flashcard, knew: boolean): Promise<F
     times_correct: card.times_correct + (knew ? 1 : 0),
     times_wrong: card.times_wrong + (knew ? 0 : 1),
   };
-  const { error } = await supabase.from('flashcards').update(updated).eq('id', card.id);
+  const { data, error } = await supabase.from('flashcards').update(updated).eq('id', card.id).select('*').single();
   if (error) throw new Error('No se pudo guardar tu respuesta: ' + error.message);
-  return { ...card, ...updated };
+  if (!data || data.id !== card.id) throw new Error('No se confirmó el guardado de tu respuesta.');
+  return data as Flashcard;
 }

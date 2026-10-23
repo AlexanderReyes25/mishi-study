@@ -43,9 +43,7 @@ export function FeedbackPanel({ answer, isLast, busy, error, onContinue, bottomI
 
       <ScrollView style={{ maxHeight: height * 0.3 }} contentContainerStyle={styles.body}>
         {!ok ? (
-          <Text style={styles.answer}>
-            Respuesta correcta: <Text style={styles.answerStrong}>{plainMath(answer.correctAnswer)}</Text>
-          </Text>
+          <View style={styles.body}><Text style={styles.answerStrong}>Respuesta correcta</Text><RichText text={answer.correctAnswer}/></View>
         ) : null}
         {answer.explanation ? <RichText text={answer.explanation} color={colors.text} /> : null}
       </ScrollView>
@@ -67,6 +65,7 @@ export function FeedbackPanel({ answer, isLast, busy, error, onContinue, bottomI
 
 const styles = StyleSheet.create({
   panel: {
+    width: '100%', maxWidth: 760, alignSelf: 'center',
     borderTopWidth: spacing.xs,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -84,6 +83,6 @@ const styles = StyleSheet.create({
   stripText: { fontSize: font.subtitle, fontWeight: '800' },
   body: { gap: spacing.sm },
   answer: { fontSize: font.body, color: colors.text },
-  answerStrong: { fontWeight: '800' },
+  answerStrong: { fontWeight: '800', color: colors.primaryDark },
   error: { fontSize: font.small, color: colors.error, fontWeight: '600' },
 });

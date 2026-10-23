@@ -1,7 +1,10 @@
 import * as DocumentPicker from 'expo-document-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { File } from 'expo-file-system';
+import { uuid } from 'expo-modules-core';
 import * as ImagePicker from 'expo-image-picker';
 import { runAi } from '../../services/ai';
+import { prepararImagen, type ImagenPreparada, type ModoImagen } from '../../services/PrepararImagen';
+import { crearSubidaImagen, subirImagen, type SubidaImagen } from '../../services/subirImagen';
 import { supabase } from '../../services/supabase';
 
 export interface MaterialItem {
@@ -13,6 +16,32 @@ export interface MaterialItem {
   raw_text?: string | null;
   file_path?: string | null;
   created_at: string;
+}
+
+const MAX_BYTES = 10 * 1024 * 1024;
+const pendingImages = new Map<string, { image: ImagenPreparada; upload: SubidaImagen }>();
+
+async function currentUser(expectedId?: string) {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) throw new Error('Inicia sesión y comprueba tu conexión.');
+  if (expectedId && data.user.id !== expectedId) throw new Error('La cuenta cambió. Vuelve a abrir Materiales.');
+  return data.user.id;
+}
+
+export function hasPendingImage(userId: string) { return pendingImages.has(userId); }
+
+export function discardPendingImage(userId: string) {
+  const pending = pendingImages.get(userId);
+  pending?.image.limpiar();
+  pendingImages.delete(userId);
+}
+
+export async function retryPendingImage(userId: string): Promise<string> {
+  const pending = pendingImages.get(userId);
+  if (!pending) throw new Error('No hay una fotografía pendiente.');
+  const id = await subirImagen(pending.upload);
+  discardPendingImage(userId);
+  return id;
 }
 
 /**
@@ -27,13 +56,23 @@ export async function uploadPdf(userId: string, subjectId?: string): Promise<str
   if (res.canceled) return null;
 
   const file = res.assets[0];
-  if ((file.size ?? 0) > 10 * 1024 * 1024) {
+  if (!file) return null;
+  if ((file.size ?? 0) > MAX_BYTES) {
     throw new Error('El archivo supera los 10 MB');
   }
 
-  const bytes = await fetch(file.uri).then((r) => r.arrayBuffer());
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${userId}/${Date.now()}-${safeName}`;
+  const local = new File(file.uri);
+  if (!local.exists || local.size <= 0 || local.size > MAX_BYTES) {
+    throw new Error('El PDF está vacío, no está disponible o supera los 10 MB.');
+  }
+  const bytes = await local.arrayBuffer();
+  if (!bytes.byteLength || bytes.byteLength > MAX_BYTES ||
+      String.fromCharCode(...new Uint8Array(bytes).slice(0, 5)) !== '%PDF-') {
+    throw new Error('Selecciona un PDF válido de hasta 10 MB.');
+  }
+  await currentUser(userId);
+  const id = uuid.v4();
+  const path = `${userId}/${id}.pdf`;
 
   const up = await supabase.storage.from('materials').upload(path, bytes, {
     contentType: 'application/pdf',
@@ -41,9 +80,11 @@ export async function uploadPdf(userId: string, subjectId?: string): Promise<str
 
   if (up.error) throw new Error(`Error en storage: ${up.error.message}`);
 
+  await currentUser(userId);
   const { data, error } = await supabase
     .from('materials')
     .insert({
+      id,
       user_id: userId,
       title: file.name,
       file_path: path,
@@ -54,7 +95,7 @@ export async function uploadPdf(userId: string, subjectId?: string): Promise<str
     .select('id')
     .single();
 
-  if (error) throw new Error(`Error en base de datos: ${error.message}`);
+  if (error) throw new Error('No se pudo confirmar el PDF. Actualiza la lista antes de volver a subirlo.');
 
   return data.id as string;
 }
@@ -65,8 +106,9 @@ export async function uploadPdf(userId: string, subjectId?: string): Promise<str
 export async function uploadImage(
   userId: string,
   source: 'camera' | 'library',
-  subjectId?: string
+  mode: ModoImagen = 'normal'
 ): Promise<string | null> {
+  if (hasPendingImage(userId)) throw new Error('Reintenta la fotografía pendiente o descártala antes de elegir otra.');
   let result: ImagePicker.ImagePickerResult;
 
   if (source === 'camera') {
@@ -75,15 +117,11 @@ export async function uploadImage(
       throw new Error('Se requiere permiso para usar la cámara');
     }
     result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
+      mediaTypes: ['images'], quality: 1, allowsEditing: false,
     });
   } else {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      throw new Error('Se requiere permiso para acceder a la galería');
-    }
     result = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.7,
+      mediaTypes: ['images'], quality: 1, allowsEditing: false, allowsMultipleSelection: false,
     });
   }
 
@@ -91,38 +129,10 @@ export async function uploadImage(
 
   const asset = result.assets[0];
 
-  const manipulated = await manipulateAsync(
-    asset.uri,
-    [{ resize: { width: 1600 } }],
-    { compress: 0.7, format: SaveFormat.JPEG }
-  );
-
-  const bytes = await fetch(manipulated.uri).then((r) => r.arrayBuffer());
-  const safeName = `foto_${Date.now()}.jpg`;
-  const path = `${userId}/${Date.now()}-${safeName}`;
-
-  const up = await supabase.storage.from('materials').upload(path, bytes, {
-    contentType: 'image/jpeg',
-  });
-
-  if (up.error) throw new Error(`Error en storage: ${up.error.message}`);
-
-  const { data, error } = await supabase
-    .from('materials')
-    .insert({
-      user_id: userId,
-      title: safeName,
-      file_path: path,
-      file_type: 'image',
-      subject_id: subjectId ?? null,
-      status: 'pending',
-    })
-    .select('id')
-    .single();
-
-  if (error) throw new Error(`Error en base de datos: ${error.message}`);
-
-  return data.id as string;
+  await currentUser(userId);
+  const image = await prepararImagen(asset.uri, mode);
+  pendingImages.set(userId, { image, upload: crearSubidaImagen(userId, image) });
+  return retryPendingImage(userId);
 }
 
 /**
@@ -136,6 +146,7 @@ export async function uploadRawText(
 ): Promise<string> {
   if (!title.trim()) throw new Error('Debes ingresar un título para el material');
   if (!rawText.trim()) throw new Error('El texto no puede estar vacío');
+  await currentUser(userId);
 
   const { data, error } = await supabase
     .from('materials')
@@ -167,7 +178,7 @@ export async function getMaterialsList(userId: string): Promise<MaterialItem[]> 
 
   if (error) throw new Error(`Error al consultar materiales: ${error.message}`);
 
-  return data as MaterialItem[];
+  return (data ?? []) as MaterialItem[];
 }
 
 /**
@@ -180,15 +191,24 @@ export async function updateRawText(
 ): Promise<void> {
   if (!title.trim()) throw new Error('Debes ingresar un título');
   if (!rawText.trim()) throw new Error('El texto no puede estar vacío');
-
+  const userId = await currentUser();
+  // El esquema todavía no versiona los apuntes. No mezclar una lección antigua con texto nuevo.
+  for (const table of ['lessons', 'flashcards', 'summaries', 'exams']) {
+    const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('material_id', materialId);
+    if (error || count == null) throw new Error('No se pudo comprobar el contenido asociado. Intenta de nuevo.');
+    if (count > 0) throw new Error('Este material ya tiene contenido de estudio. Pega la versión corregida como un apunte nuevo para conservar las lecciones y el historial anteriores.');
+  }
   const { error } = await supabase
     .from('materials')
     .update({
       title: title.trim(),
       raw_text: rawText.trim(),
       status: 'pending',
+      topics: [],
     })
-    .eq('id', materialId);
+    .eq('id', materialId).eq('user_id', userId).eq('file_type', 'text').neq('status', 'processing')
+    .select('id').single();
 
   if (error) throw new Error(`Error al actualizar material: ${error.message}`);
 }
@@ -196,18 +216,30 @@ export async function updateRawText(
 /**
  * 6. Eliminar material (registro de base de datos y archivo de storage si aplica)
  */
-export async function deleteMaterial(materialId: string, filePath?: string | null): Promise<void> {
-  if (filePath) {
-    await supabase.storage.from('materials').remove([filePath]).catch(() => {});
-  }
-
-  const { error } = await supabase.from('materials').delete().eq('id', materialId);
+export async function deleteMaterial(materialId: string): Promise<string | null> {
+  const userId = await currentUser();
+  const { data: material, error: readError } = await supabase.from('materials')
+    .select('id,file_path,status').eq('id', materialId).eq('user_id', userId).single();
+  if (readError || !material) throw new Error('No se pudo comprobar el material. Actualiza la lista.');
+  if (material.status === 'processing') throw new Error('Espera a que termine el análisis antes de eliminar.');
+  const { error } = await supabase.from('materials').delete().eq('id', materialId)
+    .eq('user_id', userId).neq('status', 'processing').select('id').single();
   if (error) throw new Error(`Error al eliminar material: ${error.message}`);
+  if (material.file_path) {
+    try {
+      if (!material.file_path.startsWith(`${userId}/`)) throw new Error('Ruta inválida');
+      const { error: storageError } = await supabase.storage.from('materials').remove([material.file_path]);
+      if (storageError) throw storageError;
+    } catch {
+      return 'El registro se eliminó, pero no se pudo confirmar la limpieza del archivo en Storage.';
+    }
+  }
+  return null;
 }
 
 /**
  * 7. Procesar temas con la IA
  */
 export async function processMaterialTopics(materialId: string) {
-  return await runAi('topics', materialId);
+  return await runAi('topics', materialId, { force: true });
 }

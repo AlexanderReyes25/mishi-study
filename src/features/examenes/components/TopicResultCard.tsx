@@ -28,8 +28,8 @@ export function TopicResultCard({ topic, correct, total, status, onReinforce }: 
   const pct = percent(correct, total);
   const fewQuestions = total < MIN_QUESTIONS_PER_TOPIC;
   // Resultado de este examen: aprobado con PASS_MARK % o más
-  const shown: Badge[] = [pct >= PASS_MARK ? badges.approved : badges.reinforcing];
-  if (fewQuestions) shown.push(badges.pending);
+  const shown: Badge[] = [{ ...(pct >= PASS_MARK ? badges.approved : badges.reinforcing), label: pct >= PASS_MARK ? 'Buen resultado' : 'Para repasar' }];
+  if (fewQuestions) shown.push({ ...badges.pending, label: 'Muestra breve' });
   // Se puede reforzar si falló aquí o si el tema sigue en refuerzo en topic_progress
   const canReinforce = pct < PASS_MARK || status?.status === 'reinforcing';
 
@@ -52,7 +52,7 @@ export function TopicResultCard({ topic, correct, total, status, onReinforce }: 
         <View style={styles.note}>
           <Ionicons name="information-circle" size={font.subtitle} color={colors.textMuted} />
           <Text style={styles.noteText}>
-            Pendiente: este tema tuvo menos de {MIN_QUESTIONS_PER_TOPIC} preguntas, así que este examen no cambia su estado.
+            Este tema tuvo menos de {MIN_QUESTIONS_PER_TOPIC} preguntas, así que este examen no cambia su estado acumulado.
           </Text>
         </View>
       ) : null}

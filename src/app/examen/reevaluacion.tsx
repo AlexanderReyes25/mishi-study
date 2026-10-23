@@ -1,6 +1,6 @@
 // Reevaluación de un tema después del refuerzo (6 preguntas solo de ese tema).
 import { useLocalSearchParams } from 'expo-router';
-import { Screen } from '../../components/Screen';
+import { Page as Screen } from '../../components/MishiUI';
 import { Button } from '../../components/Button';
 import { MIN_QUESTIONS_PER_TOPIC, PASS_MARK } from '../../services/progress';
 import { ExamIntro } from '../../features/examenes/components/ExamIntro';

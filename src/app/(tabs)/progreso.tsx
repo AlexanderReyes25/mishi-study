@@ -1,17 +1,10 @@
-// PROGRESO — responsable: Suar.
-import { Text } from 'react-native';
-import { Screen } from '../../components/Screen';
-import { Card } from '../../components/Card';
-import { colors, font } from '../../theme';
+import { router } from 'expo-router';
+import { ProgresoScreen } from '../../features/progreso/ProgresoScreen';
+import { useSession } from '../../services/session';
 
 export default function Progreso() {
-  return (
-    <Screen title="Progreso" subtitle="Suar">
-      <Card>
-        <Text style={{ color: colors.text, fontSize: font.body }}>
-          Aquí irá el dominio por tema y materia y las estadísticas.
-        </Text>
-      </Card>
-    </Screen>
-  );
+  const { userId } = useSession();
+  return userId ? <ProgresoScreen key={userId} userId={userId}
+    onStudy={() => router.navigate('/(tabs)/materiales')}
+    onReview={() => router.navigate('/(tabs)/repaso')} /> : null;
 }

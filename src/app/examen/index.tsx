@@ -1,8 +1,8 @@
 // Lista de materiales del usuario con el botón "Examen diagnóstico".
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Screen } from '../../components/Screen';
+import { Page as Screen, IconTile, Tag, EmptyState, SectionHeading, ui } from '../../components/MishiUI';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { listMaterials, type ExamMaterial } from '../../services/exams';
@@ -46,24 +46,23 @@ export default function ExamenInicio() {
   }
 
   return (
-    <Screen title="Exámenes" subtitle="Elige un material para medir qué temas dominas">
+    <Screen eyebrow="MISHI / EXÁMENES" title="Pon a prueba tus ideas" subtitle="Cada respuesta te ayuda a saber qué aprendiste y cuál es tu siguiente paso.">
+      <Card style={{backgroundColor:colors.coralSoft}}><View style={ui.headingRow}><IconTile icon="clipboard-outline" tone="coral"/><Tag label="A PARTIR DE TUS APUNTES" tone="coral"/></View><Text style={ui.sectionTitle}>Aprende también de tus errores</Text><Text style={ui.body}>Recibe una explicación después de cada respuesta. Al terminar, tu resultado se guarda en Progreso.</Text></Card>
+      <SectionHeading title="Elige tu material"/>
       {state.kind === 'loading' ? <LoadingCard title="Cargando tus materiales…" /> : null}
       {state.kind === 'error' ? <ErrorCard message={state.message} onRetry={retry} /> : null}
 
       {state.kind === 'ready' && state.materials.length === 0 ? (
-        <Card>
-          <Text style={styles.text}>Aún no tienes materiales. Sube uno en la pestaña Materiales.</Text>
-          <Button label="Ir a Materiales" onPress={() => router.replace('/materiales')} />
-        </Card>
+        <EmptyState icon="folder-open-outline" title="Empecemos por tus apuntes" description="Añade un material para preparar tu primer examen."><Button label="Ir a Materiales" onPress={() => router.dismissTo('/(tabs)/materiales')} /></EmptyState>
       ) : null}
 
       {state.kind === 'ready'
         ? state.materials.map((m) => (
             <Card key={m.id}>
               <Text style={styles.title}>{m.title}</Text>
-              <Text style={styles.muted}>Estado: {statusLabel[m.status]}</Text>
+              <Tag label={statusLabel[m.status]} tone={m.status==='ready'?'success':'neutral'}/>
               <Button
-                label="Examen diagnóstico"
+                label="Preparar examen" icon="arrow-forward" disabled={m.status==='processing'}
                 onPress={() =>
                   router.push({ pathname: '/examen/diagnostico', params: { materialId: m.id, title: m.title } })
                 }

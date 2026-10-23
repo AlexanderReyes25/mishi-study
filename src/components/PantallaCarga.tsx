@@ -1,14 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
     AccessibilityInfo,
     ActivityIndicator,
     Animated,
     Easing,
     Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
-    useAnimatedValue,
     useWindowDimensions,
 } from "react-native";
 import {
@@ -21,10 +21,13 @@ import { MishiSitting } from "./Mishi";
 
 type Props = {
   onClose: () => void;
+  title?: string;
+  closeLabel?: string;
+  note?: string;
 };
 
-export function PantallaCarga({ onClose }: Props) {
-  const respiracion = useAnimatedValue(0);
+export function PantallaCarga({ onClose, title = 'Preparando tu lección', closeLabel = 'Volver al menú', note = 'La preparación continúa al volver al menú.' }: Props) {
+  const [respiracion] = useState(() => new Animated.Value(0));
   const { width } = useWindowDimensions();
 
   useEffect(() => {
@@ -44,7 +47,7 @@ export function PantallaCarga({ onClose }: Props) {
           toValue,
           duration: 2900,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
           isInteraction: false,
         });
 
@@ -95,7 +98,7 @@ export function PantallaCarga({ onClose }: Props) {
               style={styles.title}
               accessibilityRole="header"
             >
-              Preparando tu lección
+              {title}
             </Text>
 
             <Text style={styles.description}>
@@ -123,18 +126,17 @@ export function PantallaCarga({ onClose }: Props) {
               style={styles.description}
               accessibilityLiveRegion="polite"
             >
-              Estamos generando y guardando el contenido.
-              Puede tardar un momento.
+              Estamos generando y guardando el contenido. Puede tardar un momento.
             </Text>
 
             <Button
-              label="Volver al menú"
+              label={closeLabel}
               variant="secondary"
               onPress={onClose}
             />
 
             <Text style={styles.note}>
-              La preparación continúa al volver al menú.
+              {note}
             </Text>
           </ScrollView>
         </SafeAreaView>

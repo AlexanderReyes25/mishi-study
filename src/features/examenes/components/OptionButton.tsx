@@ -3,6 +3,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, font, radius, spacing, touchMin } from '../../../theme';
+import { RichText } from '../../../components/MathText';
 import { plainMath } from '../format';
 
 export type OptionState = 'idle' | 'selected' | 'correct' | 'wrong' | 'dimmed';
@@ -31,7 +32,7 @@ export function OptionButton({ label, state, tags = [], locked, onPress }: Props
       onPress={onPress}
       disabled={locked}
       accessibilityRole="radio"
-      accessibilityState={{ checked: state === 'selected', disabled: locked }}
+      accessibilityState={{ checked: state === 'selected' || tags.includes('Tu respuesta'), disabled: locked }}
       accessibilityLabel={tags.length ? `${text}. ${tags.join(', ')}` : text}
       style={({ pressed }) => [
         styles.base,
@@ -41,7 +42,7 @@ export function OptionButton({ label, state, tags = [], locked, onPress }: Props
     >
       <Ionicons name={v.icon} size={font.title} color={v.iconColor} />
       <View style={styles.texts}>
-        <Text style={[styles.label, { color: v.text }]}>{text}</Text>
+        <View pointerEvents="none"><RichText text={label} color={v.text}/></View>
         {tags.length ? (
           <View style={styles.tags}>
             {tags.map((tag) => (
@@ -69,7 +70,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: radius.md,
     borderWidth: spacing.xs / 2,
-    borderBottomWidth: spacing.xs,
   },
   pressed: { opacity: 0.85 },
   texts: { flex: 1, gap: spacing.xs },
