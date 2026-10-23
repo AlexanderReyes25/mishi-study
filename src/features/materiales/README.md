@@ -1,5 +1,7 @@
-# Parte 1: Acceso y materiales (Integrante 2)
-Aquí va todo lo propio de esta parte: componentes, hooks y funciones de materiales.
-Pantallas: login y registro en src/app/(auth)/, y src/app/(tabs)/materiales.tsx.
-Servicios propios: src/services/materials.ts (crearlo).
-Guía completa: sección 6 de la guía del equipo.
+# Acceso y materiales — Nils
+
+`src/app/(auth)/login.tsx` conecta registro e inicio de sesión. La pestaña Materiales usa `MaterialesScreen.tsx` como controlador y `BibliotecaView.tsx` como presentación.
+
+`materials.service.ts` conserva los servicios de subida y gestión de materiales, con optimización de fotografías en `src/services/PrepararImagen.ts` y `subirImagen.ts`. `prepararLeccionMaterial.ts` enlaza un tema detectado con su lección guardada o su generación mediante IA.
+
+El detalle de cada material permite abrir lecciones y un examen diagnóstico. Los controles de prueba se sustituyeron por estas acciones de la biblioteca.

@@ -1,0 +1,170 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const root = require('node:path').resolve(__dirname, '../..');
+const ts = require(root + '/node_modules/typescript');
+const results = [];
+function load(file, mocks) {
+  const js = ts.transpileModule(fs.readFileSync(root + '/' + file, 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
+  const out = {};
+  vm.runInNewContext(js, { exports: out, require: name => { if (!(name in mocks)) throw Error(name); return mocks[name]; }, Error, Map, Promise, Uint8Array, String });
+  return out;
+}
+function setup() {
+  const s = { user: 'u1', calls: [], tables: { materials: [{id:'m1',user_id:'u1',topics:['Álgebra','Historia'],status:'ready',file_type:'text',file_path:null}], lessons: [], flashcards: [], summaries: [], exams: [] }, storageError: null, queryError: null,
+    bytes: Buffer.from('%PDF-valid'), fileSize: 10, fileExists: true, picked: { canceled:false, assets:[{uri:'content://downloads/document/123',name:'apuntes.pdf',size:10}] }, camera:true, photoCalls:[], cleanups:0, ai:async () => {}, imageFail:false,
+    platform:'android', pickerCalls:[], copyError:false, readError:false, cleanupError:false, pickerCacheUnreadable:false };
+  class Query {
+    constructor(table) { this.table=table; this.filters=[]; this.op='select'; }
+    select(cols,opts={}) { this.cols=cols;this.opts=opts;return this; }
+    eq(k,v) { this.filters.push([k,v,false]);return this; }
+    neq(k,v) { this.filters.push([k,v,true]);return this; }
+    order() { return this; } limit() { return this; }
+    single() { this.singleMode=true;return this; } maybeSingle() { this.maybe=true;return this; }
+    insert(values) { this.op='insert';this.values=values;return this; }
+    update(values) { this.op='update';this.values=values;return this; }
+    delete() { this.op='delete';return this; }
+    then(yes,no) { return Promise.resolve().then(()=>this.execute()).then(yes,no); }
+    execute() {
+      s.calls.push({table:this.table,op:this.op,filters:this.filters,values:this.values});
+      if(s.queryError?.(this)) return { data:null,error:{message:'DB error'},count:null };
+      let rows=s.tables[this.table].filter(row=>this.filters.every(([k,v,not])=>not?row[k]!==v:row[k]===v));
+      if(this.op==='insert') { const row={id:'inserted',...this.values};s.tables[this.table].push(row);rows=[row]; }
+      if(this.op==='update') rows.forEach(row=>Object.assign(row,this.values));
+      if(this.op==='delete') s.tables[this.table]=s.tables[this.table].filter(row=>!rows.includes(row));
+      if(this.singleMode && rows.length!==1) return {data:null,error:{message:'No row'},count:0};
+      return {data:this.opts?.head?null:structuredClone(this.singleMode||this.maybe?rows[0]??null:rows),error:null,count:rows.length};
+    }
+  }
+  const supabase={ auth:{getUser:async()=>({data:{user:s.user?{id:s.user}:null},error:null})}, from:t=>new Query(t), storage:{from:()=>({upload:async(path,bytes,options)=>{s.calls.push({op:'storage-upload',path,bytes:bytes.byteLength,options});return {error:s.storageError};}, remove:async(paths)=>{s.calls.push({op:'storage-remove',paths});return {error:s.storageError};}})} };
+  const ai={runAi:async(...args)=>{s.calls.push({op:'ai',args});return s.ai(...args);}};
+  const common={'../../services/supabase':{supabase},'../../services/ai':ai};
+  const copies = new Set();
+  class LocalFile {
+    constructor(...paths) { this.uri=paths.join('/');s.calls.push({op:'file-open',uri:this.uri}); }
+    get exists(){return s.fileExists;}
+    get size(){return s.fileSize;}
+    async copy(destination) {
+      s.calls.push({op:'file-copy',from:this.uri,to:destination.uri});
+      if(s.copyGate) await s.copyGate;
+      if(s.copyError) throw Error('Native copy failed');
+      copies.add(destination.uri);
+    }
+    async arrayBuffer() {
+      s.calls.push({op:'file-read',uri:this.uri});
+      if(s.readError || this.uri.includes('unreadable') || (this.uri.includes('mishi-pdf-')&&!copies.has(this.uri))) throw Error('Native read failed');
+      return Uint8Array.from(s.bytes).buffer;
+    }
+    delete() { s.calls.push({op:'file-delete',uri:this.uri});if(s.cleanupError)throw Error('Cache busy');copies.delete(this.uri); }
+  }
+  const pdf = load('src/services/seleccionarPdf.ts', {
+    'expo-document-picker':{getDocumentAsync:async options=>{
+      s.pickerCalls.push(options);
+      if(s.pickerError) throw s.pickerError;
+      if(s.pickerCacheUnreadable&&options.copyToCacheDirectory&&!s.picked.canceled) {
+        return {...s.picked,assets:[{...s.picked.assets[0],uri:'file:///unreadable.pdf'}]};
+      }
+      return s.picked;
+    }},
+    'expo-file-system':{File:LocalFile,Paths:{cache:'file:///app/cache'}},
+    'expo-modules-core':{uuid:{v4:()=> 'uuid-1'}},
+    'react-native':{Platform:{get OS(){return s.platform;}}},
+  });
+  const materials=load('src/features/materiales/materials.service.ts',{
+    ...common,
+    '../../services/seleccionarPdf':pdf,
+    'expo-modules-core':{uuid:{v4:()=> 'uuid-1'}},
+    'expo-image-picker':{requestCameraPermissionsAsync:async()=>({granted:s.camera}),launchCameraAsync:async(opts)=>{s.photoCalls.push(opts);return s.picked;},launchImageLibraryAsync:async(opts)=>{s.photoCalls.push(opts);return s.picked;}},
+    '../../services/PrepararImagen':{prepararImagen:async(uri,mode)=>{s.calls.push({op:'prepare-image',uri,mode});return {uri:'prepared.jpg',mimeType:'image/jpeg',limpiar:()=>s.cleanups++};}},
+    '../../services/subirImagen':{crearSubidaImagen:(user,image)=>({id:'image-id',userId:user,uri:image.uri}),subirImagen:async(job)=>{s.calls.push({op:'image-upload',job});if(s.imageFail)throw Error('No connection');return job.id;}}
+  });
+  const lessons=load('src/features/materiales/prepararLeccionMaterial.ts',{
+    ...common,'../../services/estudioIntegracion':{cargarLeccion:async(...args)=>{s.calls.push({op:'load-lesson',args});if(s.invalidLesson)throw Error('Invalid blocks');return {};}}
+  });
+  return {s,...materials,...lessons};
+}
+async function test(name, fn) { await fn();results.push({name,passed:true}); }
+const aiCalls=s=>s.calls.filter(c=>c.op==='ai');
+const generated=s=>s.tables.lessons.push({id:'lesson',user_id:'u1',material_id:'m1',topic:'Álgebra'});
+(async()=>{
+  await test('Lección existente se reutiliza sin IA',async()=>{const h=setup();generated(h.s);await h.prepararLeccionMaterial('u1','m1','Álgebra');assert.equal(aiCalls(h.s).length,0);assert(h.s.calls.some(c=>c.op==='load-lesson'));});
+  await test('Generación utiliza tema elegido y confirma persistencia',async()=>{const h=setup();h.s.ai=async()=>generated(h.s);await h.prepararLeccionMaterial('u1','m1','Álgebra');assert.deepEqual(JSON.parse(JSON.stringify(aiCalls(h.s)[0].args)),['lesson','m1',{topic:'Álgebra'}]);});
+  await test('Doble toque comparte una solicitud',async()=>{const h=setup();h.s.ai=async()=>generated(h.s);const a=h.prepararLeccionMaterial('u1','m1','Álgebra'),b=h.prepararLeccionMaterial('u1','m1','Álgebra');assert.equal(a,b);await Promise.all([a,b]);assert.equal(aiCalls(h.s).length,1);});
+  await test('Respuesta perdida recupera guardado',async()=>{const h=setup();h.s.ai=async()=>{generated(h.s);throw Error('Network');};await h.prepararLeccionMaterial('u1','m1','Álgebra');assert.equal(aiCalls(h.s).length,1);});
+  await test('Error sin guardado no navega ni repite automáticamente',async()=>{const h=setup();h.s.ai=async()=>{throw Error('Quota');};await assert.rejects(h.prepararLeccionMaterial('u1','m1','Álgebra'),/Quota/);assert.equal(aiCalls(h.s).length,1);h.s.ai=async()=>generated(h.s);await h.prepararLeccionMaterial('u1','m1','Álgebra');});
+  await test('Respuesta exitosa sin fila se rechaza',async()=>{const h=setup();await assert.rejects(h.prepararLeccionMaterial('u1','m1','Álgebra'),/guardado/);});
+  await test('Otra cuenta y material ajeno bloqueados',async()=>{const h=setup();await assert.rejects(h.prepararLeccionMaterial('u2','m1','Álgebra'),/sesión/);h.s.tables.materials[0].user_id='u2';await assert.rejects(h.prepararLeccionMaterial('u1','m1','Álgebra'),/disponible/);assert.equal(aiCalls(h.s).length,0);});
+  await test('Tema cambiado y procesamiento bloqueados',async()=>{const h=setup();await assert.rejects(h.prepararLeccionMaterial('u1','m1','Otro'),/tema cambió/);h.s.tables.materials[0].status='processing';await assert.rejects(h.prepararLeccionMaterial('u1','m1','Álgebra'),/procesando/);assert.equal(aiCalls(h.s).length,0);});
+  await test('Error de lectura no se convierte en generación duplicada',async()=>{const h=setup();h.s.queryError=q=>q.table==='lessons';await assert.rejects(h.prepararLeccionMaterial('u1','m1','Álgebra'),/comprobar/);assert.equal(aiCalls(h.s).length,0);});
+  await test('Bloques inválidos no se abren',async()=>{const h=setup();generated(h.s);h.s.invalidLesson=true;await assert.rejects(h.prepararLeccionMaterial('u1','m1','Álgebra'),/Invalid/);assert.equal(aiCalls(h.s).length,0);});
+  await test('Imagen usa servicio común y modo detalle; limpia solo copia',async()=>{const h=setup();assert.equal(await h.uploadImage('u1','library','detalle'),'image-id');assert.equal(h.s.calls.find(c=>c.op==='prepare-image').mode,'detalle');assert.equal(h.s.photoCalls[0].quality,1);assert.equal(h.s.cleanups,1);assert.equal(h.hasPendingImage('u1'),false);});
+  await test('Foto fallida conserva operación y copia para reintentar',async()=>{const h=setup();h.s.imageFail=true;await assert.rejects(h.uploadImage('u1','library'),/connection/);assert(h.hasPendingImage('u1'));assert.equal(h.s.cleanups,0);await assert.rejects(h.uploadImage('u1','camera'),/pendiente/);h.s.imageFail=false;await h.retryPendingImage('u1');const jobs=h.s.calls.filter(c=>c.op==='image-upload');assert.equal(jobs[0].job,jobs[1].job);assert.equal(h.s.cleanups,1);});
+  await test('Cancelar selector y denegar cámara no sube archivos',async()=>{const h=setup();h.s.picked={canceled:true};assert.equal(await h.uploadImage('u1','library'),null);h.s.camera=false;await assert.rejects(h.uploadImage('u1','camera'),/permiso/);assert.equal(h.s.calls.length,0);});
+  await test('Descartar pendiente no borra datos remotos',async()=>{const h=setup();h.s.imageFail=true;await assert.rejects(h.uploadImage('u1','library'));h.discardPendingImage('u1');assert.equal(h.hasPendingImage('u1'),false);assert.equal(h.s.cleanups,1);assert(!h.s.calls.some(c=>c.op==='delete'||c.op==='storage-remove'));});
+  await test('PDF válido usa File y nombre UUID',async()=>{const h=setup();assert.equal(await h.uploadPdf('u1'),'uuid-1');assert.equal(h.s.calls.find(c=>c.op==='storage-upload').path,'u1/uuid-1.pdf');});
+  await test('PDF cancelado, vacío, grande y falso se rechazan antes de subir',async()=>{const h=setup();h.s.picked={canceled:true};assert.equal(await h.uploadPdf('u1'),null);h.s.picked={canceled:false,assets:[{uri:'a',name:'a.pdf'}]};h.s.fileSize=0;h.s.bytes=Buffer.alloc(0);await assert.rejects(h.uploadPdf('u1'),/vacío/);h.s.fileSize=11*1024*1024;await assert.rejects(h.uploadPdf('u1'),/supera los 10 MB/);h.s.fileSize=20;h.s.bytes=Buffer.from('Not pdf');await assert.rejects(h.uploadPdf('u1'),/PDF válido/);assert(!h.s.calls.some(c=>c.op==='storage-upload'));});
+  await test('PDF de 2.42 MB se copia desde Descargas aunque la caché del selector no sea accesible',async()=>{
+    const h=setup();h.s.pickerCacheUnreadable=true;h.s.bytes=Buffer.alloc(Math.round(2.42*1024*1024));h.s.bytes.write('%PDF-1.7\n');h.s.fileSize=h.s.bytes.length;h.s.picked.assets[0].size=h.s.bytes.length;
+    await h.uploadPdf('u1');
+    assert.equal(h.s.pickerCalls[0].copyToCacheDirectory,false);
+    const copy=h.s.calls.find(c=>c.op==='file-copy'),read=h.s.calls.find(c=>c.op==='file-read'),upload=h.s.calls.find(c=>c.op==='storage-upload');
+    assert.equal(copy.from,'content://downloads/document/123');assert(copy.to.startsWith('file:///app/cache/mishi-pdf-'));assert.equal(read.uri,copy.to);assert.equal(upload.bytes,h.s.bytes.length);
+    assert.deepEqual(h.s.calls.filter(c=>c.op==='file-delete').map(c=>c.uri),[copy.to]);
+  });
+  await test('La lectura espera a que termine la copia del PDF',async()=>{
+    const h=setup();let release;h.s.copyGate=new Promise(resolve=>{release=resolve;});const work=h.uploadPdf('u1');
+    for(let i=0;i<5;i++)await Promise.resolve();assert(h.s.calls.some(c=>c.op==='file-copy'));assert(!h.s.calls.some(c=>c.op==='file-read'||c.op==='storage-upload'));
+    release();await work;assert(h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('Tamaño desconocido o cero en metadatos no rechaza bytes válidos',async()=>{
+    for(const size of [undefined,null,0]){const h=setup();h.s.fileExists=false;h.s.fileSize=size;h.s.picked.assets[0].size=size;await h.uploadPdf('u1');assert(h.s.calls.some(c=>c.op==='storage-upload'));}
+  });
+  await test('PDF de exactamente 10 MB se acepta',async()=>{
+    const h=setup();h.s.bytes=Buffer.alloc(10*1024*1024);h.s.bytes.write('%PDF-');h.s.fileSize=h.s.bytes.length;h.s.picked.assets[0].size=h.s.bytes.length;await h.uploadPdf('u1');assert.equal(h.s.calls.find(c=>c.op==='storage-upload').bytes,10*1024*1024);
+  });
+  await test('Metadatos de más de 10 MB se rechazan antes de copiar o leer',async()=>{
+    const h=setup();h.s.picked.assets[0].size=10*1024*1024+1;await assert.rejects(h.uploadPdf('u1'),/supera los 10 MB/);assert(!h.s.calls.some(c=>['file-copy','file-read','storage-upload'].includes(c.op)));
+  });
+  await test('Copia real mayor al límite se rechaza antes de cargarla en memoria y se limpia',async()=>{
+    const h=setup();h.s.fileSize=10*1024*1024+1;await assert.rejects(h.uploadPdf('u1'),/supera los 10 MB/);assert(!h.s.calls.some(c=>c.op==='file-read'||c.op==='storage-upload'));assert(h.s.calls.some(c=>c.op==='file-delete'));
+  });
+  await test('Bytes mayores al límite se rechazan aunque los metadatos indiquen menos',async()=>{
+    const h=setup();h.s.bytes=Buffer.alloc(10*1024*1024+1);h.s.bytes.write('%PDF-');await assert.rejects(h.uploadPdf('u1'),/supera los 10 MB/);assert(!h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('Fallo al copiar informa acceso y limpia solo la copia parcial',async()=>{
+    const h=setup();h.s.copyError=true;await assert.rejects(h.uploadPdf('u1'),/preparar una copia/);assert(!h.s.calls.some(c=>c.op==='file-read'||c.op==='storage-upload'));assert(h.s.calls.filter(c=>c.op==='file-delete').every(c=>c.uri.startsWith('file:///app/cache/mishi-pdf-')));
+  });
+  await test('Fallo de lectura informa lectura y nunca exceso de tamaño',async()=>{
+    const h=setup();h.s.readError=true;await assert.rejects(h.uploadPdf('u1'),e=>{assert.match(e.message,/No se pudo leer/);assert(!e.message.includes('10 MB'));assert.equal(e.cause.message,'Native read failed');return true;});assert(!h.s.calls.some(c=>c.op==='storage-upload'));assert(h.s.calls.some(c=>c.op==='file-delete'));
+  });
+  await test('Fallo de limpieza no impide subir bytes ya leídos',async()=>{
+    const h=setup();h.s.cleanupError=true;await h.uploadPdf('u1');assert(h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('No se borra el PDF de iOS y se conserva la copia del selector',async()=>{
+    const h=setup();h.s.platform='ios';h.s.picked.assets[0].uri='file:///picker/apuntes.pdf';await h.uploadPdf('u1');assert.equal(h.s.pickerCalls[0].copyToCacheDirectory,true);assert(!h.s.calls.some(c=>c.op==='file-copy'||c.op==='file-delete'));assert.equal(h.s.calls.find(c=>c.op==='file-read').uri,'file:///picker/apuntes.pdf');
+  });
+  await test('Navegador lee File real sin usar rutas del sistema nativo ni Base64',async()=>{
+    const h=setup();h.s.platform='web';h.s.picked.assets[0].file={size:10,arrayBuffer:async()=>Uint8Array.from(h.s.bytes).buffer};await h.uploadPdf('u1');assert.equal(h.s.pickerCalls[0].base64,false);assert(!h.s.calls.some(c=>c.op.startsWith('file-')));assert(h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('Navegador sin File muestra selección fallida',async()=>{
+    const h=setup();h.s.platform='web';await assert.rejects(h.uploadPdf('u1'),/navegador no entregó/);assert(!h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('Navegador con bytes vacíos o lectura fallida no sube',async()=>{
+    const h=setup();h.s.platform='web';h.s.picked.assets[0].file={size:0,arrayBuffer:async()=>new Uint8Array().buffer};await assert.rejects(h.uploadPdf('u1'),/vacío/);h.s.picked.assets[0].file.arrayBuffer=async()=>{throw Error('Browser read failed');};await assert.rejects(h.uploadPdf('u1'),/No se pudo leer/);assert(!h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('Selección vacía sin cancelar informa error en lugar de fingir cancelación',async()=>{
+    const h=setup();h.s.picked.assets=[];await assert.rejects(h.uploadPdf('u1'),/No se recibió/);assert(!h.s.calls.some(c=>c.op==='storage-upload'));
+  });
+  await test('Subida rechaza cuenta cambiada',async()=>{const h=setup();await assert.rejects(h.uploadPdf('u2'),/cuenta/);await assert.rejects(h.uploadRawText('u2','t','texto'),/cuenta/);assert(!h.s.calls.some(c=>c.op==='insert'||c.op==='storage-upload'));});
+  await test('Texto valida, recorta y filtra listado por usuario',async()=>{const h=setup();await assert.rejects(h.uploadRawText('u1',' ','texto'));await h.uploadRawText('u1',' t ',' texto ');assert.equal(h.s.tables.materials[1].title,'t');h.s.tables.materials.push({id:'other',user_id:'u2'});assert.equal((await h.getMaterialsList('u1')).length,2);});
+  await test('Edición limpia temas y vuelve a pending',async()=>{const h=setup();await h.updateRawText('m1',' t ',' nuevo ');assert.equal(h.s.tables.materials[0].raw_text,'nuevo');assert.equal(h.s.tables.materials[0].topics.length,0);assert.equal(h.s.tables.materials[0].status,'pending');});
+  await test('Edición de material con lecciones o tarjetas preserva historial',async()=>{for(const table of ['lessons','flashcards','summaries','exams']){const h=setup();h.s.tables[table].push({id:'saved',user_id:'u1',material_id:'m1'});await assert.rejects(h.updateRawText('m1','t','nuevo'),/apunte nuevo/);assert(!h.s.calls.some(c=>c.op==='update'));}});
+  await test('Edición rechaza fila ajena, no texto o en proceso',async()=>{for(const values of [{user_id:'u2'},{file_type:'pdf'},{status:'processing'}]){const h=setup();Object.assign(h.s.tables.materials[0],values);await assert.rejects(h.updateRawText('m1','t','nuevo'));}});
+  await test('Borrado confirma registro antes de Storage',async()=>{const h=setup();h.s.tables.materials[0].file_path='u1/file.pdf';assert.equal(await h.deleteMaterial('m1'),null);const ops=h.s.calls.map(c=>c.op);assert(ops.indexOf('delete')<ops.indexOf('storage-remove'));});
+  await test('Fallo de borrado DB no borra archivo',async()=>{const h=setup();h.s.tables.materials[0].file_path='u1/file.pdf';h.s.queryError=q=>q.op==='delete';await assert.rejects(h.deleteMaterial('m1'));assert(!h.s.calls.some(c=>c.op==='storage-remove'));});
+  await test('Limpieza Storage fallida informa sin fingir éxito total',async()=>{const h=setup();h.s.tables.materials[0].file_path='u1/file.pdf';h.s.storageError={message:'fail'};assert.match(await h.deleteMaterial('m1'),/no se pudo confirmar/);assert.equal(h.s.tables.materials.length,0);});
+  await test('No elimina archivos ajenos ni material en análisis',async()=>{const h=setup();h.s.tables.materials[0].status='processing';await assert.rejects(h.deleteMaterial('m1'),/termine/);h.s.tables.materials[0].status='ready';h.s.tables.materials[0].file_path='u2/foreign.pdf';assert.match(await h.deleteMaterial('m1'),/limpieza/);assert(!h.s.calls.some(c=>c.op==='storage-remove'));});
+  await test('Reanálisis fuerza lectura del contenido actual',async()=>{const h=setup();await h.processMaterialTopics('m1');assert.equal(aiCalls(h.s)[0].args[2].force,true);});
+  fs.writeFileSync(__dirname+'/services-report.json',JSON.stringify({scenarios:results.length,results},null,2));
+  console.log(`${results.length} escenarios de servicios aprobados (simulados, sin red ni escrituras reales).`);
+})().catch(e=>{console.error(e);process.exitCode=1;});

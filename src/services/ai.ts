@@ -1,3 +1,4 @@
+import { LessonBlock } from "../../supabase/functions/_shared/lesson";
 import { supabase } from "./supabase";
 
 export type AiAction = "topics" | "summary" | "flashcards" | "exam" | "lesson";
@@ -36,7 +37,12 @@ export type AiResult = {
     exam: { id: string; title: string; kind: ExamKind };
     questions: ExamQuestion[];
   };
-  lesson: { title: string; lesson: string; round: number };
+  lesson: {
+    title: string;
+    lesson: string;
+    round: number;
+    blocks?: LessonBlock[];
+  };
 };
 
 export async function runAi<A extends AiAction>(

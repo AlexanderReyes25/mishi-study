@@ -21,11 +21,16 @@ export const colors = {
   textMuted: '#5E6E79',
   border: '#C1C1C1',
   white: '#FFFFFF',
+  canvas: '#F5F6F2',
+  line: '#DFE5E5',
+  coralSoft: '#F8E9E4',
+  inkOnCoral: '#402C32',
+  darkLine: '#49606C',
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
-export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
+export const radius = { sm: 10, md: 16, lg: 24, pill: 999 };
 
 export const font = { small: 13, body: 16, subtitle: 18, title: 24, big: 32 };
 

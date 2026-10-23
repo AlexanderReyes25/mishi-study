@@ -1,21 +1,50 @@
-import { useEffect } from 'react';
-import { AccessibilityInfo, Animated, Image, View, useAnimatedValue, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Image,
+  Platform,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 const base = require('../assets/mishi/mishi_base.png');
 const earLeft = require('../assets/mishi/mishi_ear_l.png');
 const earRight = require('../assets/mishi/mishi_ear_r.png');
 const shadow = require('../assets/mishi/mishi_shadow.png');
 
-// Giro corto de una oreja que se repite cada 3,6 s. peak es el ángulo máximo en grados.
-function useEarFlick(delayMs: number, peak: number) {
-  const angle = useAnimatedValue(0);
+function useEarFlick(
+  delayMs: number,
+  peak: number,
+  enabled: boolean
+) {
+  const [angle] = useState(() => new Animated.Value(0));
+
   useEffect(() => {
+    angle.setValue(0);
+
+    // Esperamos a que las tres imágenes estén listas.
+    if (!enabled) return;
+
     let mounted = true;
     let loop: Animated.CompositeAnimation | undefined;
-    AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      if (reduce || !mounted) return; // respeta "reducir animaciones"
-      const move = (to: number, ms: number) =>
-        Animated.timing(angle, { toValue: to, duration: ms, useNativeDriver: true });
+
+    const adjust = (reduce: boolean) => {
+      if (!mounted) return;
+
+      loop?.stop();
+      angle.setValue(0);
+
+      if (reduce) return;
+
+      const move = (toValue: number, duration: number) =>
+        Animated.timing(angle, {
+          toValue,
+          duration,
+          useNativeDriver: Platform.OS !== 'web',
+          isInteraction: false,
+        });
+
       loop = Animated.loop(
         Animated.sequence([
           Animated.delay(delayMs),
@@ -23,53 +52,155 @@ function useEarFlick(delayMs: number, peak: number) {
           move(-peak / 7, 150),
           move(peak * 0.55, 150),
           move(0, 200),
-          Animated.delay(Math.max(0, 3600 - delayMs - 700)),
+          Animated.delay(
+            Math.max(0, 3600 - delayMs - 700)
+          ),
         ])
       );
+
       loop.start();
-    });
+    };
+
+    const listener = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      adjust
+    );
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(adjust)
+      .catch(() => adjust(true));
+
     return () => {
       mounted = false;
+      listener.remove();
       loop?.stop();
     };
-  }, [angle, delayMs, peak]);
-  return angle.interpolate({ inputRange: [-10, 10], outputRange: ['-10deg', '10deg'] });
+  }, [angle, delayMs, peak, enabled]);
+
+  return angle.interpolate({
+    inputRange: [-10, 10],
+    outputRange: ["-10deg", "10deg"],
+  });
 }
 
-// Mishi sentado con las orejas animadas, para la pantalla de carga. Proporción: 410 x 733.
-export function MishiSitting({ width = 162 }: { width?: number }) {
+export function MishiSitting({
+  width = 162,
+}: {
+  width?: number;
+}) {
+  const [loaded, setLoaded] = useState({
+    body: false,
+    left: false,
+    right: false,
+  });
+
+  const ready = loaded.body && loaded.left && loaded.right;
   const height = (width * 733) / 410;
-  const rotLeft = useEarFlick(2300, -7);
-  const rotRight = useEarFlick(1000, 7);
-  const full = { position: 'absolute' as const, left: 0, top: 0, width, height };
+
+  const rotLeft = useEarFlick(2300, -4, ready);
+  const rotRight = useEarFlick(1000, 4, ready);
+
+  const full = {
+    position: "absolute" as const,
+    left: 0,
+    top: 0,
+    width,
+    height,
+  };
+
   return (
-    <View style={{ width, height }} accessible accessibilityLabel="Mishi, un gato calicó">
-      <Image source={base} style={full} />
-      <Animated.Image
-        source={earLeft}
-        style={[full, { transformOrigin: '20% 15.3%', transform: [{ rotate: rotLeft }] }]}
-      />
-      <Animated.Image
-        source={earRight}
-        style={[full, { transformOrigin: '56.6% 13.4%', transform: [{ rotate: rotRight }] }]}
-      />
+    <View
+      style={{ width, height }}
+      accessible={ready}
+      accessibilityLabel="Mishi, un gato calicó"
+    >
+      <View
+        style={{
+          width,
+          height,
+          opacity: ready ? 1 : 0,
+        }}
+      >
+        <Animated.Image
+          source={earLeft}
+          fadeDuration={0}
+          resizeMode="contain"
+          onLoad={() =>
+            setLoaded((current) => ({
+              ...current,
+              left: true,
+            }))
+          }
+          style={[
+            full,
+            {
+              transformOrigin: "20% 15.3%",
+              transform: [{ rotate: rotLeft }],
+            },
+          ]}
+        />
+
+        <Animated.Image
+          source={earRight}
+          fadeDuration={0}
+          resizeMode="contain"
+          onLoad={() =>
+            setLoaded((current) => ({
+              ...current,
+              right: true,
+            }))
+          }
+          style={[
+            full,
+            {
+              transformOrigin: "56.6% 13.4%",
+              transform: [{ rotate: rotRight }],
+            },
+          ]}
+        />
+
+        {/* El cuerpo cubre la unión de las orejas. */}
+        <Image
+          source={base}
+          fadeDuration={0}
+          resizeMode="contain"
+          onLoad={() =>
+            setLoaded((current) => ({
+              ...current,
+              body: true,
+            }))
+          }
+          style={full}
+        />
+      </View>
     </View>
   );
 }
 
-type ShadowProps = { width?: number; left?: number; bottom?: number; rotate?: string };
+type ShadowProps = {
+  width?: number;
+  left?: number;
+  bottom?: number;
+  rotate?: string;
+};
 
-export function MishiShadow({ width, left = -60, bottom, rotate = '45deg' }: ShadowProps) {
+export function MishiShadow({
+  width,
+  left = -60,
+  bottom,
+  rotate = '45deg',
+}: ShadowProps) {
   const screenWidth = useWindowDimensions().width;
-  // A 45 grados, la punta de la oreja derecha queda en left + 1,22 x ancho.
-  // Si no se indica un ancho, se calcula para que la punta llegue al centro de la pantalla.
+
   const w = width ?? Math.round((screenWidth / 2 - left) / 1.22);
   const b = bottom ?? -Math.round(w * 0.69);
+
   return (
     <Image
       source={shadow}
       accessible={false}
       importantForAccessibility="no"
+      resizeMode="contain"
       style={{
         position: 'absolute',
         left,
@@ -78,7 +209,6 @@ export function MishiShadow({ width, left = -60, bottom, rotate = '45deg' }: Sha
         height: (w * 733) / 410,
         transform: [{ rotate }],
       }}
-      resizeMode="contain"
     />
   );
 }
