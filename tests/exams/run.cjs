@@ -36,6 +36,7 @@ function services(options = {}) {
       then(resolve, reject) { return Promise.resolve().then(() => {
         calls.push({ table, operation, values, columns, filters });
         if (s.fail?.(table, operation)) return { error: { message: 'offline' } };
+        if (table === 'materials') return { data: s.material ?? { topics: ['Álgebra', 'Historia'] } };
         if (table === 'exam_questions') return { data: { correct_answer: '  VERDADERO ', explanation: 'Porque…' } };
         if (table === 'exam_attempts') {
           if (operation === 'insert') s.attempt = { id: 'a1', score: 0, total: 0, finished_at: null };
@@ -50,7 +51,7 @@ function services(options = {}) {
     }; return query;
   } };
   return { s, calls, ...load('src/services/exams.ts', {
-    './supabase': { supabase }, './ai': { runAi: async () => s.aiResult },
+    './supabase': { supabase }, './ai': { runAi: async (...args) => { calls.push({ ai: args }); return s.aiResult; } },
     './progress': { recordAttempt: async () => {
       calls.push({ rpc: true }); if (s.rpcError) throw Error('offline');
       if (!s.unconfirmed) Object.assign(s.attempt, { score: s.answers.filter(a => a.is_correct).length, total: s.answers.length, finished_at: '2026-10-22' });
@@ -91,6 +92,25 @@ function provider(mocks = {}) {
   await test('Corrige ignorando espacios y mayúsculas',async()=>{const x=services();assert((await x.gradeAnswer('q1','verdadero')).isCorrect);assert(!(await x.gradeAnswer('q1','falso')).isCorrect);});
   await test('Filtra preguntas abiertas y respeta orden de la IA',async()=>{const x=services({aiResult:{exam:{id:'e1',kind:'diagnostic',title:'T'},questions:[{...q('q2'),position:2},{...q('q0'),type:'open',position:0},{...q('q1'),position:1}]}});assert.equal((await x.createExam('m1','diagnostic',{count:3})).questions.map(q=>q.id).join(','),'q1,q2');});
   await test('Rechaza examen sin preguntas compatibles',async()=>{await assert.rejects(services({aiResult:{exam:{},questions:[]}}).createExam('m1','diagnostic',{count:3}));});
+  await test('Envía auto y un único tema; acepta una pregunta sin rellenar',async()=>{
+    const x=services({aiResult:{countMode:'auto',exam:{id:'e1',title:'T',kind:'diagnostic'},questions:[q('q1')]}});
+    const result=await x.createExam('m1','diagnostic',{count:'auto',topics:['Álgebra']});assert.equal(result.questions.length,1);
+    assert.deepEqual(JSON.parse(JSON.stringify(x.calls.find(c=>c.ai).ai)),['exam','m1',{kind:'diagnostic',count:'auto',topics:['Álgebra']}]);
+  });
+  await test('No llama a IA sin tema único; detecta servidor antiguo y tema incorrecto',async()=>{
+    const x=services({aiResult:{exam:{},questions:[q('q1')]}});
+    for(const topics of [[],['Álgebra','Historia']]) await assert.rejects(x.createExam('m1','diagnostic',{count:'auto',topics}),/Elige un tema/);
+    assert.equal(x.calls.filter(c=>c.ai).length,0);
+    await assert.rejects(x.createExam('m1','diagnostic',{count:'auto',topics:['Álgebra']}),/versión anterior/);
+    x.s.aiResult.countMode='auto';await assert.rejects(x.createExam('m1','diagnostic',{count:'auto',topics:['Historia']}),/no corresponden/);
+  });
+  await test('Reutiliza temas guardados y no gasta IA para consultarlos',async()=>{
+    const x=services({material:{topics:[' Álgebra ','Álgebra',null,'','Historia']}});assert.equal((await x.getExamTopics('m1')).join(','),'Álgebra,Historia');assert(!x.calls.some(c=>c.ai));assert.deepEqual(x.calls[0].filters,[['id','m1']]);
+  });
+  await test('Detecta temas solo bajo petición y avisa si no hay contenido suficiente',async()=>{
+    const x=services({aiResult:{topics:['Álgebra','Historia']}});assert.equal((await x.detectExamTopics('m1')).length,2);assert.equal(x.calls.find(c=>c.ai).ai[0],'topics');
+    x.s.aiResult={topics:[]};await assert.rejects(x.detectExamTopics('m1'),/No se encontraron temas/);
+  });
   await test('Guardar y reintentar no repite escrituras confirmadas',async()=>{const x=services();const a=await x.saveAttempt('e1','u1',[answer('q1')]);assert.equal(a.total,1);await x.saveAttempt('e1','u1',[answer('q1')]);assert.equal(x.calls.filter(c=>c.operation==='insert').length,2);assert.equal(x.calls.filter(c=>c.rpc).length,1);});
   await test('Fallo del RPC conserva respuestas y permite reintentar',async()=>{const x=services({rpcError:true});await assert.rejects(x.saveAttempt('e1','u1',[answer('q1')]));x.s.rpcError=false;assert.equal((await x.saveAttempt('e1','u1',[answer('q1')])).total,1);assert.equal(x.s.answers.length,1);});
   await test('No muestra resultado guardado si finished_at sigue vacío',async()=>{await assert.rejects(services({unconfirmed:true}).saveAttempt('e1','u1',[answer('q1')]),/confirmado/);});

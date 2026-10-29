@@ -1,4 +1,5 @@
 import { LessonBlock } from "../../supabase/functions/_shared/lesson";
+import type { ExamCount } from "../../supabase/functions/_shared/exam";
 import { supabase } from "./supabase";
 
 export type AiAction = "topics" | "summary" | "flashcards" | "exam" | "lesson";
@@ -6,7 +7,7 @@ export type ExamKind = "diagnostic" | "practice" | "reevaluation";
 
 export interface AiOptions {
   difficulty?: number;
-  count?: number;
+  count?: ExamCount;
   force?: boolean;
   topic?: string;
   kind?: ExamKind;
@@ -36,6 +37,7 @@ export type AiResult = {
   exam: {
     exam: { id: string; title: string; kind: ExamKind };
     questions: ExamQuestion[];
+    countMode?: "auto" | "limit";
   };
   lesson: {
     title: string;

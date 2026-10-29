@@ -10,6 +10,7 @@ import { PantallaCarga } from '../../../components/PantallaCarga';
 import { Card } from '../../../components/Card';
 import { Button } from '../../../components/Button';
 import type { ExamKind } from '../../../services/ai';
+import type { ExamOptions } from '../../../services/exams';
 import { colors, font, spacing } from '../../../theme';
 import { useExam } from '../ExamProvider';
 import { goBackOr } from '../navigation';
@@ -21,11 +22,12 @@ type Props = {
   points: string[];
   materialId: string;
   kind: ExamKind;
-  count: number;
+  count: ExamOptions['count'];
   topics?: string[];
+  onChangeTopic?: () => void;
 };
 
-export function ExamIntro({ title, subtitle, points, materialId, kind, count, topics }: Props) {
+export function ExamIntro({ title, subtitle, points, materialId, kind, count, topics, onChangeTopic }: Props) {
   const { startExam } = useExam();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export function ExamIntro({ title, subtitle, points, materialId, kind, count, to
         disabled={!materialId}
       />
       <Button label="Volver" variant="secondary" onPress={() => goBackOr('/examen')} disabled={loading} />
+      {onChangeTopic ? <Button label="Elegir otro tema" variant="secondary" onPress={onChangeTopic} disabled={loading} /> : null}
       {loading && showLoading ? <PantallaCarga title="Preparando tu examen" closeLabel="Ver estado" note="El examen se abrirá al terminar. Mantén la app abierta." onClose={()=>setShowLoading(false)}/> : null}
     </Screen>
   );

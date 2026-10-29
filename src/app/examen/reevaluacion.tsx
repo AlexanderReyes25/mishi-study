@@ -1,4 +1,4 @@
-// Reevaluación de un tema después del refuerzo (6 preguntas solo de ese tema).
+// Reevaluación de un tema: la cantidad depende del material disponible.
 import { useLocalSearchParams } from 'expo-router';
 import { Page as Screen } from '../../components/MishiUI';
 import { Button } from '../../components/Button';
@@ -7,8 +7,7 @@ import { ExamIntro } from '../../features/examenes/components/ExamIntro';
 import { ErrorCard } from '../../features/examenes/components/StatusCards';
 import { goBackOr } from '../../features/examenes/navigation';
 import { firstParam } from '../../features/examenes/params';
-
-const REEVALUATION_COUNT = 6;
+import { MAX_EXAM_QUESTIONS } from '../../../supabase/functions/_shared/exam';
 
 export default function Reevaluacion() {
   const params = useLocalSearchParams<{ materialId?: string; topic?: string }>();
@@ -30,12 +29,13 @@ export default function Reevaluacion() {
       subtitle={topic}
       materialId={materialId}
       kind="reevaluation"
-      count={REEVALUATION_COUNT}
+      count="auto"
       topics={[topic]}
       points={[
-        `Hasta ${REEVALUATION_COUNT} preguntas solo sobre «${topic}».`,
+        `Solo sobre «${topic}». La IA elige la cantidad según el contenido, sin mínimo y con un máximo de ${MAX_EXAM_QUESTIONS}.`,
         `Apruebas el tema con ${PASS_MARK}% o más.`,
         `El tema necesita al menos ${MIN_QUESTIONS_PER_TOPIC} preguntas para cambiar de estado.`,
+        'Si el examen es más corto, tu resultado se guarda sin cambiar el estado del tema.',
       ]}
     />
   );

@@ -8,6 +8,7 @@ import {
   gradeAnswer,
   saveAttempt,
   type ExamSession,
+  type ExamOptions,
   type GradedAnswer,
   type PlayableQuestion,
   type SavedAttempt,
@@ -25,7 +26,7 @@ export interface ExamRun {
 
 type ExamContextValue = {
   run: ExamRun | null;
-  startExam: (materialId: string, kind: ExamKind, options: { count: number; topics?: string[] }) => Promise<void>;
+  startExam: (materialId: string, kind: ExamKind, options: ExamOptions) => Promise<void>;
   checkAnswer: (question: PlayableQuestion, choice: string) => Promise<GradedAnswer>;
   goNext: (questionId: string) => void;
   finishExam: () => Promise<SavedAttempt>;
@@ -46,7 +47,7 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     return () => { mounted.current = false; };
   }, []);
 
-  function startExam(materialId: string, kind: ExamKind, options: { count: number; topics?: string[] }) {
+  function startExam(materialId: string, kind: ExamKind, options: ExamOptions) {
     if (starting.current) return starting.current;
     if (!userId) return Promise.reject(new Error('Vuelve a iniciar sesión.'));
     if (checking.current || finishing.current) return Promise.reject(new Error('Espera a que termine la operación actual.'));

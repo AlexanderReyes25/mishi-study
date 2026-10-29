@@ -2,6 +2,7 @@
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lessonToMarkdown, parseLesson } from "../_shared/lesson.ts";
+import { examQuestionLimit, examTask, parseExamQuestions } from "../_shared/exam.ts";
 
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.5-flash-lite";
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB por archivo
@@ -160,20 +161,7 @@ REGLAS DE FORMATO:
   }
 
   // exam
-  const regla = o.focus.length
-    ? `Haz preguntas SOLO sobre estos temas: ${o.focus.join("; ")}. En "topic" usa exactamente uno de esos nombres.`
-    : o.materialTopics.length
-    ? `En "topic" usa exactamente uno de estos nombres: ${o.materialTopics.join("; ")}. Reparte las preguntas entre ellos.`
-    : `En "topic" usa un nombre corto de 2 a 4 palabras.`;
-  return `${nivel}
-Crea un examen de ${count} preguntas basado en el material, mezclando tipos. ${regla}
-Antes de responder, resuelve cada pregunta y comprueba que correct_answer sea realmente correcta. Si no estás seguro de una pregunta, no la incluyas.
-Devuelve JSON con esta forma exacta:
-{"title": "título del examen", "questions": [
-  {"type": "multiple_choice", "question": "...", "options": ["A", "B", "C", "D"], "correct_answer": "debe ser idéntico a una de las opciones", "explanation": "por qué es correcta", "topic": "tema"},
-  {"type": "true_false", "question": "...", "options": ["Verdadero", "Falso"], "correct_answer": "Verdadero", "explanation": "...", "topic": "tema"},
-  {"type": "open", "question": "...", "options": null, "correct_answer": "respuesta modelo", "explanation": "...", "topic": "tema"}
-]}`;
+  return `${nivel}\n${examTask(count, o.focus, o.materialTopics)}`;
 }
 
 // Llamada a la API de Gemini
@@ -320,6 +308,11 @@ Deno.serve(async (req) => {
       throw new HttpError(404, "Material no encontrado.");
     }
     const materialTopics = cleanList(material.topics);
+    if (action === "exam" && body.count === "auto") {
+      if (!Array.isArray(body.topics) || body.topics.length !== 1 || focus.length !== 1 || !materialTopics.includes(focus[0])) {
+        throw new HttpError(400, "Elige un tema detectado de este material antes de crear el examen.");
+      }
+    }
 
     // 4. Dificultad: la que envía la app o, si no, el nivel del perfil
     const { data: profile } = await supabase
@@ -400,7 +393,7 @@ Deno.serve(async (req) => {
 
     // 7. Preparar el contenido para Gemini (archivo o texto)
     const count = action === "exam"
-      ? clampInt(body.count, 3, 15, 8)
+      ? examQuestionLimit(body.count)
       : clampInt(body.count, 3, 20, 10);
     const parts: unknown[] = [
       {
@@ -528,11 +521,9 @@ Deno.serve(async (req) => {
       };
     } else {
       // exam
-      const rawQuestions = Array.isArray(result.questions)
-        ? result.questions
-        : [];
-      if (!rawQuestions.length) {
-        throw new HttpError(502, "No se generaron preguntas.");
+      const validQuestions = parseExamQuestions(result.questions, focus.length ? focus : materialTopics, count);
+      if (!validQuestions.length) {
+        throw new HttpError(422, "No se pudieron generar preguntas válidas para este tema con el material disponible. Prueba con apuntes más completos o legibles.");
       }
       const { data: exam, error: examErr } = await supabase.from("exams")
         .insert({
@@ -547,32 +538,22 @@ Deno.serve(async (req) => {
         throw new HttpError(500, "No se pudo crear el examen.");
       }
 
-      const questions = rawQuestions
-        .filter((q: { question?: unknown; correct_answer?: unknown }) =>
-          typeof q?.question === "string" &&
-          typeof q?.correct_answer === "string"
-        )
-        .map((q: Record<string, unknown>, i: number) => ({
+      const questions = validQuestions.map((q, i) => ({
+          ...q,
           exam_id: exam.id,
           user_id: user.id,
-          type: ["multiple_choice", "true_false", "open"].includes(
-              String(q.type),
-            )
-            ? q.type
-            : "open",
-          question: q.question,
-          options: Array.isArray(q.options) ? q.options : null,
-          correct_answer: q.correct_answer,
-          explanation: typeof q.explanation === "string" ? q.explanation : null,
-          topic: typeof q.topic === "string" ? q.topic.slice(0, 100) : null,
           position: i,
         }));
       const { data: savedQ, error: qErr } = await supabase
         .from("exam_questions").insert(questions)
         .select("id, type, question, options, topic, position");
-      if (qErr) throw new HttpError(500, "No se pudieron guardar las preguntas.");
+      if (qErr) {
+        // Evita dejar un examen vacío si falla la inserción de sus preguntas.
+        await supabase.from("exams").delete().eq("id", exam.id).eq("user_id", user.id);
+        throw new HttpError(500, "No se pudieron guardar las preguntas.");
+      }
       // No devolvemos la respuesta correcta aquí; la app la consulta al corregir.
-      response = { exam, questions: savedQ };
+      response = { exam, questions: savedQ, countMode: body.count === "auto" ? "auto" : "limit" };
     }
 
     await supabase.from("materials").update({ status: "ready" }).eq(

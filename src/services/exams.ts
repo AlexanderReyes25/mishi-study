@@ -4,6 +4,9 @@
 import { supabase } from "./supabase";
 import { runAi, type AiResult, type ExamKind } from "./ai";
 import { recordAttempt, type TopicStatus } from "./progress";
+import type { ExamCount } from "../../supabase/functions/_shared/exam";
+
+export type ExamOptions = { count: ExamCount; topics?: string[] };
 
 export interface ExamMaterial {
   id: string;
@@ -90,8 +93,33 @@ export async function listMaterials(): Promise<ExamMaterial[]> {
 }
 
 // ---------------------------------------------------------------------
-// Crear examen con la IA
+// Temas del material: la consulta normal no consume llamadas a la IA.
 // ---------------------------------------------------------------------
+function topicList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim()).filter((v) => v.length > 0 && v.length <= 100))].slice(0, 10);
+}
+
+export async function getExamTopics(materialId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("materials").select("topics").eq("id", materialId).single();
+  if (error) throw dbError(error.message, "No se pudieron cargar los temas. Inténtalo de nuevo.");
+  if (!data) throw new Error("No se encontró el material.");
+  return topicList(data.topics);
+}
+
+export async function detectExamTopics(materialId: string): Promise<string[]> {
+  try {
+    const result = await runAi("topics", materialId);
+    const topics = topicList(result.topics);
+    if (!topics.length) throw new Error("No se encontraron temas. Prueba con apuntes más completos o legibles.");
+    return topics;
+  } catch (error) {
+    throw aiError(error);
+  }
+}
+
+// Crear examen con la IA
 function toPlayable(q: {
   id: string;
   type: string;
@@ -121,13 +149,19 @@ function toPlayable(q: {
 export async function createExam(
   materialId: string,
   kind: ExamKind,
-  options: { count: number; topics?: string[] }
+  options: ExamOptions
 ): Promise<ExamSession> {
+  if (options.count === "auto" && (options.topics?.length !== 1 || !options.topics[0]?.trim())) {
+    throw new Error("Elige un tema antes de crear el examen.");
+  }
   let result;
   try {
     result = await runAi("exam", materialId, { kind, count: options.count, topics: options.topics });
   } catch (e) {
     throw aiError(e);
+  }
+  if (options.count === "auto" && result.countMode !== "auto") {
+    throw new Error("El servidor todavía usa la versión anterior de exámenes. Falta desplegar la actualización de ai-study.");
   }
   const questions = [...result.questions]
     .sort((a, b) => a.position - b.position)
@@ -135,6 +169,9 @@ export async function createExam(
     .filter((q): q is PlayableQuestion => q !== null);
   if (!questions.length) {
     throw new Error("La IA no generó preguntas de opción múltiple ni de verdadero o falso. Inténtalo de nuevo.");
+  }
+  if (options.count === "auto" && questions.some((q) => q.topic !== options.topics![0])) {
+    throw new Error("Las preguntas no corresponden al tema elegido. Inténtalo de nuevo.");
   }
   return { examId: result.exam.id, title: result.exam.title, kind: result.exam.kind, questions };
 }

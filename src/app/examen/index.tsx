@@ -62,7 +62,7 @@ export default function ExamenInicio() {
               <Text style={styles.title}>{m.title}</Text>
               <Tag label={statusLabel[m.status]} tone={m.status==='ready'?'success':'neutral'}/>
               <Button
-                label="Preparar examen" icon="arrow-forward" disabled={m.status==='processing'}
+                label="Elegir tema del examen" icon="arrow-forward" disabled={m.status==='processing'}
                 onPress={() =>
                   router.push({ pathname: '/examen/diagnostico', params: { materialId: m.id, title: m.title } })
                 }
